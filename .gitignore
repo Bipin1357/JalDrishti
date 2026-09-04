@@ -157,3 +157,26 @@ backend/__pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+# Python virtual environments
+.venv/
+venv/
+.yolo-venv/
+backend/venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# YOLO / training artifacts
+runs/
+yolo/runs/
+yolo/datasets/
+yolo/weights/
+*.pt
+*.onnx
+*.engine
+*.mlpackage
+
+# local test images
+bus.jpg
