@@ -196,3 +196,11 @@ runs/
 # Python cache
 __pycache__/
 *.pyc
+# YOLO local files
+bus.jpg
+runs/
+*.pt
+
+# Python cache
+__pycache__/
+*.pyc
