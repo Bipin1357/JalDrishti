@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import datetime
+from app.core.supabase import supabase
 
 app = FastAPI(
     title="JalDrishti - Integrated Watershed Monitoring API",
