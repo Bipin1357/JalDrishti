@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 import datetime
 from app.core.supabase import supabase
+from app.api.indices import router as indices_router
 
 app = FastAPI(
     title="JalDrishti - Integrated Watershed Monitoring API",
@@ -25,6 +26,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Routers
+# ---------------------------------------------------------------------------
+app.include_router(indices_router)
 
 
 # ---------------------------------------------------------------------------
