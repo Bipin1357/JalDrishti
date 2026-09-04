@@ -157,6 +157,7 @@ backend/__pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+<<<<<<< HEAD
 # Python virtual environments
 .venv/
 venv/
@@ -196,6 +197,8 @@ runs/
 # Python cache
 __pycache__/
 *.pyc
+=======
+>>>>>>> f3c600b (Ignore local YOLO and Python cache files)
 # YOLO local files
 bus.jpg
 runs/
@@ -203,6 +206,7 @@ runs/
 
 # Python cache
 __pycache__/
+<<<<<<< HEAD
 *.pyc
 # YOLO local files
 bus.jpg
@@ -212,3 +216,6 @@ runs/
 # Python cache
 __pycache__/
 *.pyc
+=======
+*.pyc
+>>>>>>> f3c600b (Ignore local YOLO and Python cache files)
