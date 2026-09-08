@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.services.indices import calculate_before_after
+from app.services.dataset_sync import ensure_dataset_synced
 
 router = APIRouter(prefix="/api/indices", tags=["Indices"])
 
@@ -65,6 +66,14 @@ def get_before_after_indices():
     """
     Execute before-and-after NDVI/NDWI calculation on Sentinel-2 data and return summary statistics.
     """
+    try:
+        ensure_dataset_synced()
+    except Exception as sync_err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Satellite dataset synchronization failed: {str(sync_err)}",
+        )
+
     try:
         results = calculate_before_after()
     except FileNotFoundError as fnf_err:
