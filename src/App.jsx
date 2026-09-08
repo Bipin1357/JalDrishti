@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '';
 
 const DEFAULT_EVIDENCE = [
   {
@@ -62,6 +62,59 @@ const DEFAULT_EVIDENCE = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Sentinel-2 Indices Cache & Request Sharing
+// ---------------------------------------------------------------------------
+// Module-level cache prevents duplicate 10980x10980 raster processing across
+// React StrictMode double-mounts and navigation tab switches.
+let cachedIndices = null;
+let indicesInFlightPromise = null;
+
+function fetchIndicesData(force = false) {
+  if (force) {
+    cachedIndices = null;
+    indicesInFlightPromise = null;
+  }
+
+  if (cachedIndices) {
+    return Promise.resolve(cachedIndices);
+  }
+
+  if (!indicesInFlightPromise) {
+    console.log('[fetchIndicesData] Dispatching GET to:', `${API_BASE}/api/indices/before-after`);
+    indicesInFlightPromise = fetch(`${API_BASE}/api/indices/before-after`)
+      .then(async (response) => {
+        console.log('[fetchIndicesData] Response status received:', response.status);
+        if (!response.ok) {
+          let errorDetail = '';
+          try {
+            const errJson = await response.json();
+            errorDetail = errJson.detail || errJson.message || JSON.stringify(errJson);
+          } catch {
+            errorDetail = await response.text().catch(() => '');
+          }
+          throw new Error(
+            `Backend returned HTTP ${response.status}${errorDetail ? `: ${errorDetail}` : ''}`
+          );
+        }
+        return response.json();
+      })
+      .then((data) => {
+        console.log('[fetchIndicesData] Successfully parsed JSON payload:', data);
+        cachedIndices = data;
+        indicesInFlightPromise = null;
+        return data;
+      })
+      .catch((err) => {
+        console.error('[fetchIndicesData] Request failed:', err);
+        indicesInFlightPromise = null;
+        throw err;
+      });
+  }
+
+  return indicesInFlightPromise;
+}
+
 export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [evidenceList, setEvidenceList] = useState(DEFAULT_EVIDENCE);
@@ -72,6 +125,45 @@ export default function App() {
     highPrioritySites: 12,
     villagesCovered: 34,
   });
+
+  // CV Analysis state managed at root level to prevent remount wipes & ensure single in-flight fetch
+  const [indexData, setIndexData] = useState(cachedIndices);
+  const [indicesLoading, setIndicesLoading] = useState(false);
+  const [indicesError, setIndicesError] = useState('');
+
+  const loadIndices = (force = false) => {
+    console.log('[loadIndices] Starting fetch...', { force, hasCached: !!cachedIndices });
+    if (!force && cachedIndices) {
+      console.log('[loadIndices] Instant return from memory cache');
+      setIndexData(cachedIndices);
+      setIndicesLoading(false);
+      return;
+    }
+
+    setIndicesLoading(true);
+    setIndicesError('');
+
+    fetchIndicesData(force)
+      .then((data) => {
+        console.log('[loadIndices] Setting indexData and indicesLoading = false');
+        setIndexData(data);
+        setIndicesLoading(false);
+      })
+      .catch((err) => {
+        console.error('[loadIndices] Error loading Sentinel-2 indices:', err);
+        setIndicesError(
+          err.message || 'Unable to load satellite index data. Make sure the FastAPI backend is running.'
+        );
+        setIndicesLoading(false);
+      });
+  };
+
+  // Trigger exactly ONE request when entering the CV Analysis page
+  useEffect(() => {
+    if (currentPage === 'analysis') {
+      loadIndices();
+    }
+  }, [currentPage]);
 
   const [formData, setFormData] = useState({
     village: '',
@@ -235,7 +327,14 @@ export default function App() {
 
         {currentPage === 'map' && <MapPage evidenceItems={evidenceList} />}
 
-        {currentPage === 'analysis' && <AnalysisPage />}
+        {currentPage === 'analysis' && (
+          <AnalysisPage
+            indexData={indexData}
+            loading={indicesLoading}
+            error={indicesError}
+            onRetry={() => loadIndices(true)}
+          />
+        )}
 
         {currentPage === 'reports' && <ReportsPage evidenceItems={evidenceList} />}
       </main>
@@ -665,79 +764,291 @@ function MapPage({ evidenceItems }) {
 // ---------------------------------------------------------------------------
 // CV Analysis Board
 // ---------------------------------------------------------------------------
-function AnalysisPage() {
+function AnalysisPage({
+  indexData = cachedIndices,
+  loading = false,
+  error = '',
+  onRetry = () => {},
+}) {
+  console.log('[AnalysisPage Render] Props:', {
+    hasIndexData: !!indexData,
+    loading,
+    error,
+    ndviAfterMean: indexData?.ndvi?.after?.mean,
+    ndwiAfterMean: indexData?.ndwi?.after?.mean,
+  });
+
+  const formatValue = (value, decimals = 5) => {
+    if (value === null || value === undefined || isNaN(value)) {
+      return '—';
+    }
+
+    return Number(value).toFixed(decimals);
+  };
+
+  const calculatePercentChange = (before, after) => {
+    if (
+      before === null ||
+      after === null ||
+      before === undefined ||
+      after === undefined ||
+      before === 0
+    ) {
+      return null;
+    }
+
+    return ((after - before) / Math.abs(before)) * 100;
+  };
+
+  const ndviPercentChange = indexData?.ndvi?.before?.mean != null && indexData?.ndvi?.after?.mean != null
+    ? calculatePercentChange(
+        indexData.ndvi.before.mean,
+        indexData.ndvi.after.mean
+      )
+    : null;
+
+  const ndwiPercentChange = indexData?.ndwi?.before?.mean != null && indexData?.ndwi?.after?.mean != null
+    ? calculatePercentChange(
+        indexData.ndwi.before.mean,
+        indexData.ndwi.after.mean
+      )
+    : null;
+
   return (
     <section className="page-grid">
       <div className="panel wide">
         <span className="eyebrow">AI & Remote Sensing Engine</span>
         <h1>Automated Computer Vision & Remote Sensing Board</h1>
         <p className="muted-copy">
-          JalDrishti continuously evaluates uploaded ground photographs and Sentinel-2 multispectral tiles
-          to detect assets, verify photographic authenticity, and track post-monsoon catchment rejuvenation.
+          JalDrishti continuously evaluates uploaded ground photographs and
+          Sentinel-2 multispectral tiles to detect assets, verify photographic
+          authenticity, and track post-monsoon catchment rejuvenation.
         </p>
       </div>
+
+      {error && (
+        <div
+          className="status-pill needs-review"
+          style={{
+            padding: '0.8rem 1.2rem',
+            marginBottom: '0.75rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            width: '100%',
+          }}
+        >
+          <span>⚠️ {error}</span>
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{
+              background: '#ffffff',
+              border: '1px solid #d97706',
+              borderRadius: '6px',
+              padding: '0.35rem 0.85rem',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.82rem',
+              color: '#92400e',
+            }}
+          >
+            🔄 Retry
+          </button>
+        </div>
+      )}
 
       <div className="analysis-grid">
         <article className="panel analysis-card">
           <div className="analysis-card-header">
-            <span>Photo Quality Index</span>
-            <span className="status-pill verified">Optimal</span>
+            <span>NDVI — Vegetation Health</span>
+            <span className="status-pill verified">🌱 Sentinel-2</span>
           </div>
-          <strong>93.4%</strong>
-          <div className="progress-bar-wrap">
-            <div className="progress-bar-fill" style={{ width: '93%' }}></div>
-          </div>
-          <p>
-            Laplacian variance algorithm checks for lens blur, severe underexposure, duplicate photo hashes,
-            and camera tampering before acceptance.
-          </p>
+
+          {loading ? (
+            <strong>Loading...</strong>
+          ) : indexData?.ndvi ? (
+            <>
+              <strong>{formatValue(indexData.ndvi.after.mean)}</strong>
+
+              <div className="progress-bar-wrap">
+                <div
+                  className="progress-bar-fill"
+                  style={{
+                    width: `${Math.min(
+                      Math.max(
+                        ((indexData.ndvi.after.mean + 1) / 2) * 100,
+                        0
+                      ),
+                      100
+                    )}%`,
+                  }}
+                ></div>
+              </div>
+
+              <p>
+                <strong>Before:</strong> {formatValue(indexData.ndvi.before.mean)}
+                <br />
+                <strong>After:</strong> {formatValue(indexData.ndvi.after.mean)}
+                <br />
+                <strong>Change:</strong> {formatValue(indexData.ndvi.change.mean)}
+                {ndviPercentChange !== null && (
+                  <>
+                    {' '}
+                    ({ndviPercentChange >= 0 ? '+' : ''}
+                    {ndviPercentChange.toFixed(2)}%)
+                  </>
+                )}
+              </p>
+            </>
+          ) : (
+            <strong>—</strong>
+          )}
         </article>
 
         <article className="panel analysis-card">
           <div className="analysis-card-header">
-            <span>Asset Detection Model</span>
-            <span className="status-pill verified">Check Dam</span>
+            <span>NDWI — Surface Water</span>
+            <span className="status-pill verified">💧 Sentinel-2</span>
           </div>
-          <strong>96.4% Conf.</strong>
-          <div className="progress-bar-wrap">
-            <div className="progress-bar-fill" style={{ width: '96%' }}></div>
-          </div>
-          <p>
-            Fine-tuned YOLOv8 model classifies structural components (masonry crest, side abutments, spillway,
-            and embankment) from field images.
-          </p>
+
+          {loading ? (
+            <strong>Loading...</strong>
+          ) : indexData?.ndwi ? (
+            <>
+              <strong>{formatValue(indexData.ndwi.after.mean)}</strong>
+
+              <div className="progress-bar-wrap">
+                <div
+                  className="progress-bar-fill"
+                  style={{
+                    width: `${Math.min(
+                      Math.max(
+                        ((indexData.ndwi.after.mean + 1) / 2) * 100,
+                        0
+                      ),
+                      100
+                    )}%`,
+                  }}
+                ></div>
+              </div>
+
+              <p>
+                <strong>Before:</strong> {formatValue(indexData.ndwi.before.mean)}
+                <br />
+                <strong>After:</strong> {formatValue(indexData.ndwi.after.mean)}
+                <br />
+                <strong>Change:</strong> {formatValue(indexData.ndwi.change.mean)}
+                {ndwiPercentChange !== null && (
+                  <>
+                    {' '}
+                    ({ndwiPercentChange >= 0 ? '+' : ''}
+                    {ndwiPercentChange.toFixed(2)}%)
+                  </>
+                )}
+              </p>
+            </>
+          ) : (
+            <strong>—</strong>
+          )}
         </article>
 
         <article className="panel analysis-card">
           <div className="analysis-card-header">
-            <span>Catchment NDVI Delta</span>
-            <span className="status-pill verified">+14.2%</span>
+            <span>NDVI Raster Statistics</span>
+            <span className="status-pill verified">📡 Live</span>
           </div>
-          <strong>+14.2% Gain</strong>
-          <div className="progress-bar-wrap">
-            <div className="progress-bar-fill" style={{ width: '78%' }}></div>
-          </div>
-          <p>
-            Google Earth Engine Sentinel-2 comparison reveals sustained post-monsoon vegetation growth in
-            the 500-meter watershed catchment zone.
-          </p>
+
+          {loading ? (
+            <strong>Loading...</strong>
+          ) : indexData?.ndvi ? (
+            <>
+              <strong>{formatValue(indexData.ndvi.after.mean)}</strong>
+              <p>
+                <strong>Minimum:</strong> {formatValue(indexData.ndvi.after.min)}
+                <br />
+                <strong>Maximum:</strong> {formatValue(indexData.ndvi.after.max)}
+                <br />
+                <strong>Mean:</strong> {formatValue(indexData.ndvi.after.mean)}
+                <br />
+                <strong>Raster:</strong> {indexData.ndvi.after.shape?.join(' × ')}
+              </p>
+            </>
+          ) : (
+            <strong>—</strong>
+          )}
         </article>
 
         <article className="panel analysis-card">
           <div className="analysis-card-header">
-            <span>Surface Water Spread</span>
-            <span className="status-pill verified">Stable</span>
+            <span>NDWI Raster Statistics</span>
+            <span className="status-pill verified">📡 Live</span>
           </div>
-          <strong>1.8 Hectares</strong>
-          <div className="progress-bar-wrap">
-            <div className="progress-bar-fill" style={{ width: '85%' }}></div>
-          </div>
-          <p>
-            Modified Normalized Difference Water Index (MNDWI: +0.22) confirms active reservoir percolation
-            recharging nearby community borewells.
-          </p>
+
+          {loading ? (
+            <strong>Loading...</strong>
+          ) : indexData?.ndwi ? (
+            <>
+              <strong>{formatValue(indexData.ndwi.after.mean)}</strong>
+              <p>
+                <strong>Minimum:</strong> {formatValue(indexData.ndwi.after.min)}
+                <br />
+                <strong>Maximum:</strong> {formatValue(indexData.ndwi.after.max)}
+                <br />
+                <strong>Mean:</strong> {formatValue(indexData.ndwi.after.mean)}
+                <br />
+                <strong>Raster:</strong> {indexData.ndwi.after.shape?.join(' × ')}
+              </p>
+            </>
+          ) : (
+            <strong>—</strong>
+          )}
         </article>
       </div>
+
+      {indexData && (
+        <div className="panel wide">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">Sentinel-2 Temporal Comparison</span>
+              <h2>Before vs After Analysis</h2>
+            </div>
+          </div>
+
+          <div className="report-stats-strip">
+            <div className="report-stat-item">
+              <span>NDVI Before</span>
+              <strong>{formatValue(indexData.ndvi.before.mean)}</strong>
+            </div>
+
+            <div className="report-stat-item">
+              <span>NDVI After</span>
+              <strong>{formatValue(indexData.ndvi.after.mean)}</strong>
+            </div>
+
+            <div className="report-stat-item">
+              <span>NDVI Change</span>
+              <strong>{formatValue(indexData.ndvi.change.mean)}</strong>
+            </div>
+
+            <div className="report-stat-item">
+              <span>NDWI Before</span>
+              <strong>{formatValue(indexData.ndwi.before.mean)}</strong>
+            </div>
+
+            <div className="report-stat-item">
+              <span>NDWI After</span>
+              <strong>{formatValue(indexData.ndwi.after.mean)}</strong>
+            </div>
+
+            <div className="report-stat-item">
+              <span>NDWI Change</span>
+              <strong>{formatValue(indexData.ndwi.change.mean)}</strong>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
