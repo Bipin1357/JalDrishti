@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 
-const API_BASE = '';
+// In development: API_BASE is '' so requests use Vite dev server proxy (:5501 -> :8000)
+// In production (Vercel): API_BASE uses VITE_API_BASE_URL pointing to the deployed FastAPI backend
+const API_BASE = import.meta.env.VITE_API_BASE_URL
+  ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
+  : '';
 
 const DEFAULT_EVIDENCE = [
   {

@@ -11,16 +11,27 @@ app = FastAPI(
     version="1.1.0"
 )
 
-# Allow Vite dev server ports (5501 from config, 5173 standard)
+import os
+
+# ---------------------------------------------------------------------------
+# CORS Configuration
+# Supports local Vite dev ports (5501, 5173), Vercel deployments (*.vercel.app),
+# and custom domains configured via ALLOWED_ORIGINS or CORS_ORIGINS env vars.
+# ---------------------------------------------------------------------------
+cors_origins_env = os.getenv("ALLOWED_ORIGINS", os.getenv("CORS_ORIGINS", ""))
+extra_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+
+allowed_origins = [
+    "http://localhost:5501",
+    "http://127.0.0.1:5501",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+] + extra_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5501",
-        "http://127.0.0.1:5501",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "*"
-    ],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
