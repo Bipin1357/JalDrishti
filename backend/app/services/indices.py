@@ -287,8 +287,121 @@ def calculate_indices_for_period(
     }, profile
 
 
+import os
+from rasterio.windows import Window
+from typing import Generator
+
+# Limit GDAL block cache to 32MB to operate safely within Render Free 512MB RAM
+os.environ.setdefault("GDAL_CACHEMAX", "32")
+os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "TRUE")
+
+
 # ---------------------------------------------------------
-# Before / After
+# Running Statistics Accumulator
+# ---------------------------------------------------------
+
+class RunningStats:
+    """
+    Numerically stable running statistics accumulator using float64
+    and Neumaier compensated summation.
+    """
+
+    def __init__(self, shape: Tuple[int, int]):
+        self.min_val: float = float("inf")
+        self.max_val: float = float("-inf")
+        self.sum_val: float = 0.0
+        self.compensation: float = 0.0
+        self.count: int = 0
+        self.shape: list = list(shape)
+
+    def update(self, arr: np.ndarray) -> None:
+        """
+        Update running statistics with an array chunk.
+        Invalid/no-data pixels (non-finite) are filtered identically to np.isfinite(arr).
+        """
+        finite_mask = np.isfinite(arr)
+        if not np.any(finite_mask):
+            return
+        valid = arr[finite_mask]
+
+        local_min = float(np.min(valid))
+        local_max = float(np.max(valid))
+        if local_min < self.min_val:
+            self.min_val = local_min
+        if local_max > self.max_val:
+            self.max_val = local_max
+
+        chunk_sum = float(np.sum(valid, dtype=np.float64))
+        chunk_count = valid.size
+
+        # Neumaier compensated summation for double-precision accuracy
+        t = self.sum_val + chunk_sum
+        if abs(self.sum_val) >= abs(chunk_sum):
+            self.compensation += (self.sum_val - t) + chunk_sum
+        else:
+            self.compensation += (chunk_sum - t) + self.sum_val
+        self.sum_val = t
+
+        self.count += chunk_count
+
+    @property
+    def total_sum(self) -> float:
+        return self.sum_val + self.compensation
+
+    def to_dict(self) -> dict:
+        if self.count == 0:
+            return {
+                "min": None,
+                "max": None,
+                "mean": None,
+                "shape": self.shape,
+            }
+        return {
+            "min": float(self.min_val),
+            "max": float(self.max_val),
+            "mean": float(self.total_sum / self.count),
+            "shape": self.shape,
+        }
+
+
+class RasterStatsDict(dict):
+    """
+    Dict subclass providing both dict access and a .mean() method
+    for backwards compatibility with legacy callers.
+    """
+
+    def mean(self) -> Optional[float]:
+        return self.get("mean")
+
+
+def _get_safe_windows(
+    src: rasterio.DatasetReader,
+    max_size: int = 1024,
+) -> Generator[Window, None, None]:
+    """
+    Generate processing windows.
+    Prefers native block_windows() when practical and bounded by max_size;
+    otherwise yields bounded windows no larger than max_size x max_size.
+    """
+    block_shapes = src.block_shapes
+    if block_shapes:
+        block_h, block_w = block_shapes[0]
+        if 0 < block_h <= max_size and 0 < block_w <= max_size:
+            for _, window in src.block_windows(1):
+                yield window
+            return
+
+    # Fallback for rasters with very large or missing block structures
+    height, width = src.height, src.width
+    for row in range(0, height, max_size):
+        h = min(max_size, height - row)
+        for col in range(0, width, max_size):
+            w = min(max_size, width - col)
+            yield Window(col, row, w, h)
+
+
+# ---------------------------------------------------------
+# Before / After (Windowed Low-Memory Calculation)
 # ---------------------------------------------------------
 
 def calculate_before_after(
@@ -298,20 +411,15 @@ def calculate_before_after(
     after_date: Optional[str] = "20250222",
 ) -> Dict[str, Any]:
     """
-    Calculate:
+    Calculate summary statistics for:
+        NDVI Before, NDVI After, NDVI Change
+        NDWI Before, NDWI After, NDWI Change
 
-        NDVI Before
-        NDVI After
-        NDVI Change
+    Uses rasterio windowed/block processing with GDAL cache constraints
+    to ensure memory consumption remains under ~150 MB, safely running
+    on Render Free (512 MB).
 
-        NDWI Before
-        NDWI After
-        NDWI Change
-
-    Current test scenes:
-
-        Before = 12-Feb-2025
-        After  = 22-Feb-2025
+    Never holds full 10,980 x 10,980 arrays in memory.
     """
 
     target_before = (
@@ -326,62 +434,104 @@ def calculate_before_after(
         else DEFAULT_AFTER_DIR
     )
 
-    # -----------------------------------------------------
-    # BEFORE
-    # -----------------------------------------------------
+    before_band_files = locate_band_files(target_before, scene_date=before_date)
+    after_band_files = locate_band_files(target_after, scene_date=after_date)
 
-    before_indices, before_profile = calculate_indices_for_period(
-        target_before,
-        scene_date=before_date,
-    )
+    with rasterio.Env(GDAL_CACHEMAX=32, VSI_CACHE=False, GDAL_DISABLE_READDIR_ON_OPEN="TRUE"):
+        with rasterio.open(before_band_files["B03"]) as b_b03, \
+             rasterio.open(before_band_files["B04"]) as b_b04, \
+             rasterio.open(before_band_files["B08"]) as b_b08, \
+             rasterio.open(after_band_files["B03"]) as a_b03, \
+             rasterio.open(after_band_files["B04"]) as a_b04, \
+             rasterio.open(after_band_files["B08"]) as a_b08:
 
-    # -----------------------------------------------------
-    # AFTER
-    # -----------------------------------------------------
+            if b_b04.shape != a_b04.shape:
+                raise ValueError(
+                    f"Before raster shape {b_b04.shape} does not match "
+                    f"after raster shape {a_b04.shape}"
+                )
 
-    after_indices, after_profile = calculate_indices_for_period(
-        target_after,
-        scene_date=after_date,
-    )
+            raster_shape = b_b04.shape
+            before_profile = b_b04.profile.copy()
+            after_profile = a_b04.profile.copy()
 
-    # -----------------------------------------------------
-    # NDVI
-    # -----------------------------------------------------
+            stats = {
+                "ndvi": {
+                    "before": RunningStats(raster_shape),
+                    "after": RunningStats(raster_shape),
+                    "change": RunningStats(raster_shape),
+                },
+                "ndwi": {
+                    "before": RunningStats(raster_shape),
+                    "after": RunningStats(raster_shape),
+                    "change": RunningStats(raster_shape),
+                },
+            }
 
-    ndvi_before = before_indices["ndvi"]
-    ndvi_after = after_indices["ndvi"]
+            # Iterate windows (preferring native 1024x1024 JP2 block windows)
+            for window in _get_safe_windows(b_b04, max_size=1024):
+                # 1. Read only B03, B04, B08 for this window as float32
+                bb03 = b_b03.read(1, window=window).astype(np.float32)
+                bb04 = b_b04.read(1, window=window).astype(np.float32)
+                bb08 = b_b08.read(1, window=window).astype(np.float32)
 
-    ndvi_change = (
-        ndvi_after - ndvi_before
-    ).astype(np.float32)
+                ab03 = a_b03.read(1, window=window).astype(np.float32)
+                ab04 = a_b04.read(1, window=window).astype(np.float32)
+                ab08 = a_b08.read(1, window=window).astype(np.float32)
 
-    # -----------------------------------------------------
-    # NDWI
-    # -----------------------------------------------------
+                # 2. Calculate window NDVI and NDWI using exact formulas and zero-denominator handling
+                b_ndvi = calculate_ndvi(b04=bb04, b08=bb08)
+                b_ndwi = calculate_ndwi(b03=bb03, b08=bb08)
 
-    ndwi_before = before_indices["ndwi"]
-    ndwi_after = after_indices["ndwi"]
+                a_ndvi = calculate_ndvi(b04=ab04, b08=ab08)
+                a_ndwi = calculate_ndwi(b03=ab03, b08=ab08)
 
-    ndwi_change = (
-        ndwi_after - ndwi_before
-    ).astype(np.float32)
+                # 3. Calculate window change
+                ch_ndvi = (a_ndvi - b_ndvi).astype(np.float32)
+                ch_ndwi = (a_ndwi - b_ndwi).astype(np.float32)
 
-    # -----------------------------------------------------
-    # Return everything
-    # -----------------------------------------------------
+                # 4. Update incremental running statistics
+                stats["ndvi"]["before"].update(b_ndvi)
+                stats["ndvi"]["after"].update(a_ndvi)
+                stats["ndvi"]["change"].update(ch_ndvi)
+
+                stats["ndwi"]["before"].update(b_ndwi)
+                stats["ndwi"]["after"].update(a_ndwi)
+                stats["ndwi"]["change"].update(ch_ndwi)
+
+                # 5. Immediately delete temporary window arrays
+                del bb03, bb04, bb08, ab03, ab04, ab08
+                del b_ndvi, b_ndwi, a_ndvi, a_ndwi, ch_ndvi, ch_ndwi
+
+    ndvi_before_stats = stats["ndvi"]["before"].to_dict()
+    ndvi_after_stats = stats["ndvi"]["after"].to_dict()
+    ndvi_change_stats = stats["ndvi"]["change"].to_dict()
+
+    ndwi_before_stats = stats["ndwi"]["before"].to_dict()
+    ndwi_after_stats = stats["ndwi"]["after"].to_dict()
+    ndwi_change_stats = stats["ndwi"]["change"].to_dict()
 
     return {
-        "ndvi_before": ndvi_before,
-        "ndvi_after": ndvi_after,
-        "ndvi_change": ndvi_change,
-
-        "ndwi_before": ndwi_before,
-        "ndwi_after": ndwi_after,
-        "ndwi_change": ndwi_change,
+        "ndvi": {
+            "before": ndvi_before_stats,
+            "after": ndvi_after_stats,
+            "change": ndvi_change_stats,
+        },
+        "ndwi": {
+            "before": ndwi_before_stats,
+            "after": ndwi_after_stats,
+            "change": ndwi_change_stats,
+        },
+        # Backwards-compatible aliases supporting both dict lookups and .mean()
+        "ndvi_before": RasterStatsDict(ndvi_before_stats),
+        "ndvi_after": RasterStatsDict(ndvi_after_stats),
+        "ndvi_change": RasterStatsDict(ndvi_change_stats),
+        "ndwi_before": RasterStatsDict(ndwi_before_stats),
+        "ndwi_after": RasterStatsDict(ndwi_after_stats),
+        "ndwi_change": RasterStatsDict(ndwi_change_stats),
 
         "before_profile": before_profile,
         "after_profile": after_profile,
-
         "before_date": before_date,
         "after_date": after_date,
     }

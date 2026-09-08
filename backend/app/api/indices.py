@@ -2,7 +2,7 @@
 API routes for Sentinel-2 satellite indices (NDVI, NDWI).
 """
 
-from typing import List, Optional
+from typing import List, Optional, Union
 import numpy as np
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
@@ -31,10 +31,14 @@ class BeforeAfterIndicesResponse(BaseModel):
     ndwi: IndexTemporalStats
 
 
-def _compute_stats(arr: np.ndarray) -> dict:
+def _compute_stats(arr: Union[np.ndarray, dict]) -> dict:
     """
     Computes min, max, mean, and shape safely by filtering non-finite (NaN/inf) values.
+    If already a pre-computed dictionary from windowed processing, returns it directly.
     """
+    if isinstance(arr, dict):
+        return arr
+
     finite_mask = np.isfinite(arr)
     if not np.any(finite_mask):
         return {
@@ -89,13 +93,13 @@ def get_before_after_indices():
 
     return {
         "ndvi": {
-            "before": _compute_stats(results["ndvi_before"]),
-            "after": _compute_stats(results["ndvi_after"]),
-            "change": _compute_stats(results["ndvi_change"]),
+            "before": _compute_stats(results["ndvi"]["before"]),
+            "after": _compute_stats(results["ndvi"]["after"]),
+            "change": _compute_stats(results["ndvi"]["change"]),
         },
         "ndwi": {
-            "before": _compute_stats(results["ndwi_before"]),
-            "after": _compute_stats(results["ndwi_after"]),
-            "change": _compute_stats(results["ndwi_change"]),
+            "before": _compute_stats(results["ndwi"]["before"]),
+            "after": _compute_stats(results["ndwi"]["after"]),
+            "change": _compute_stats(results["ndwi"]["change"]),
         },
     }
