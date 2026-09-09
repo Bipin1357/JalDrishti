@@ -21,13 +21,12 @@ function parseGpsCoordinates(gpsStr) {
   return [24.5748, 80.8321];
 }
 
-function calculateLaplacianVariance(imgElement) {
+function calculateImageQuality(imgElement) {
   try {
     const canvas = document.createElement('canvas');
-    // Scale down for fast responsive edge detection while preserving blur variance
-    const width = Math.min(imgElement.naturalWidth || imgElement.width || 300, 300);
-    const height = Math.min(imgElement.naturalHeight || imgElement.height || 300, 300);
-    if (!width || !height) return { variance: 120, isBlurry: false };
+    const width = Math.min(imgElement.naturalWidth || imgElement.width || 320, 320);
+    const height = Math.min(imgElement.naturalHeight || imgElement.height || 320, 320);
+    if (!width || !height) return { variance: 120, isBlurry: false, isSmudged: false, isRejected: false };
 
     canvas.width = width;
     canvas.height = height;
@@ -43,10 +42,7 @@ function calculateLaplacianVariance(imgElement) {
       gray[j] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
     }
 
-    // Apply 3x3 Laplacian discrete kernel:
-    // [  0,  1,  0 ]
-    // [  1, -4,  1 ]
-    // [  0,  1,  0 ]
+    // 1. Overall Global Laplacian discrete kernel
     const laplacian = new Float32Array((width - 2) * (height - 2));
     let mean = 0;
     let count = 0;
@@ -73,18 +69,76 @@ function calculateLaplacianVariance(imgElement) {
     }
     variance = variance / count;
 
-    // Standard threshold: variance < 100 indicates blurry
+    // 2. Multi-Zone Block Analysis (4x4 Grid) for Smudge / Fog / Fingerprint detection
+    const gridCols = 4;
+    const gridRows = 4;
+    const blockW = Math.floor(width / gridCols);
+    const blockH = Math.floor(height / gridRows);
+    let lowVarianceZones = 0;
+
+    for (let r = 0; r < gridRows; r++) {
+      for (let c = 0; c < gridCols; c++) {
+        let bSum = 0;
+        let bCount = 0;
+        let bLapSum = 0;
+        const startX = c * blockW;
+        const endX = (c + 1) * blockW;
+        const startY = r * blockH;
+        const endY = (r + 1) * blockH;
+
+        for (let y = Math.max(1, startY); y < Math.min(height - 1, endY); y++) {
+          for (let x = Math.max(1, startX); x < Math.min(width - 1, endX); x++) {
+            const v = gray[y * width + x];
+            bSum += v;
+            const lVal =
+              gray[(y - 1) * width + x] +
+              gray[(y + 1) * width + x] +
+              gray[y * width + (x - 1)] +
+              gray[y * width + (x + 1)] -
+              4 * v;
+            bLapSum += lVal * lVal;
+            bCount++;
+          }
+        }
+
+        if (bCount > 0) {
+          const blockLapVar = bLapSum / bCount;
+          // A lens smudge causes heavy localized detail loss
+          if (blockLapVar < 40.0) {
+            lowVarianceZones++;
+          }
+        }
+      }
+    }
+
     const score = Math.round(variance * 10) / 10;
+    const isBlurry = score < 100.0;
+    // Smudge flagged if localized hazy/foggy zones are detected while rest has higher contrast
+    const isSmudged = !isBlurry && lowVarianceZones >= 2 && score > 120.0;
+    const isRejected = isBlurry || isSmudged;
+
+    let defectReason = '';
+    if (isBlurry) {
+      defectReason = `Photo is blurry (Laplacian score: ${score} < 100)`;
+    } else if (isSmudged) {
+      defectReason = `Lens smudge/fingerprint detected (${lowVarianceZones} foggy zones). Please clean the camera lens.`;
+    }
+
     return {
       variance: score,
-      isBlurry: score < 100.0,
+      isBlurry,
+      isSmudged,
+      isRejected,
+      lowVarianceZones,
       threshold: 100.0,
+      defectReason,
     };
   } catch (err) {
-    console.warn('Laplacian calculation fallback:', err);
-    return { variance: 150, isBlurry: false, threshold: 100.0 };
+    console.warn('Image quality calculation fallback:', err);
+    return { variance: 150, isBlurry: false, isSmudged: false, isRejected: false, threshold: 100.0, defectReason: '' };
   }
 }
+
 
 const DEFAULT_EVIDENCE = [
   // --- SIMPLE (Standard Functional Assets · Verified · Low Risk) ---
@@ -428,10 +482,10 @@ export default function App() {
   const handleSubmitEvidence = async (event) => {
     event.preventDefault();
     setIsSubmitting(true);
-    // Client-side guard: reject if image is blurry
-    if (formData.isBlurry) {
+    // Client-side guard: reject if image is blurry or smudged
+    if (formData.isRejected) {
       setIsSubmitting(false);
-      setSubmitNotice(`❌ Submission Rejected: Photo is too blurry (Laplacian: ${formData.blurScore} < 100). Please retake a sharper photo.`);
+      setSubmitNotice(`❌ Submission Rejected: ${formData.defectReason || 'Image quality check failed. Photo is blurry or smudged.'}`);
       return;
     }
 
@@ -657,18 +711,21 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
       const reader = new FileReader();
       reader.onloadend = () => {
         const previewUrl = reader.result;
-        // Evaluate image blur via client-side Laplacian filter
+        // Evaluate image sharpness and lens smudge via multi-zone Laplacian analysis
         const tempImg = new Image();
         tempImg.onload = () => {
-          const blurResult = calculateLaplacianVariance(tempImg);
+          const quality = calculateImageQuality(tempImg);
           setFormData((data) => ({
             ...data,
             photoName: file.name,
             photoPreview: previewUrl,
             photoBase64: previewUrl,
-            blurScore: blurResult.variance,
-            isBlurry: blurResult.isBlurry,
-            blurThreshold: blurResult.threshold,
+            blurScore: quality.variance,
+            isBlurry: quality.isBlurry,
+            isSmudged: quality.isSmudged,
+            isRejected: quality.isRejected,
+            blurThreshold: quality.threshold,
+            defectReason: quality.defectReason,
           }));
         };
         tempImg.src = previewUrl;
@@ -857,15 +914,17 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
                 </div>
                 {formData.blurScore !== undefined && (
                   <div
-                    className={`blur-status-badge ${formData.isBlurry ? 'blurry' : 'sharp'}`}
+                    className={`blur-status-badge ${formData.isRejected ? 'blurry' : 'sharp'}`}
                   >
                     <span>
                       {formData.isBlurry
                         ? `❌ Blurry Photo (Laplacian: ${formData.blurScore} < ${formData.blurThreshold || 100})`
+                        : formData.isSmudged
+                        ? `❌ Lens Smudge Detected (${formData.lowVarianceZones} foggy zones)`
                         : `✓ Sharp & Clear (Laplacian: ${formData.blurScore} ≥ 100)`}
                     </span>
                     <span style={{ fontSize: '0.72rem', opacity: 0.9 }}>
-                      {formData.isBlurry ? 'Recapture photo' : 'QA Verified'}
+                      {formData.isRejected ? 'Clean lens / Recapture' : 'QA Verified'}
                     </span>
                   </div>
                 )}
@@ -876,13 +935,15 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
           <button
             className="primary-action full-width"
             type="submit"
-            disabled={isSubmitting || !!formData.isBlurry}
-            style={formData.isBlurry ? { opacity: 0.55, cursor: 'not-allowed', background: '#94a3b8' } : {}}
+            disabled={isSubmitting || !!formData.isRejected}
+            style={formData.isRejected ? { opacity: 0.55, cursor: 'not-allowed', background: '#94a3b8' } : {}}
           >
             {isSubmitting
               ? 'Verifying & Submitting...'
               : formData.isBlurry
               ? '⛔ Rejected: Image Too Blurry'
+              : formData.isSmudged
+              ? '⛔ Rejected: Camera Lens Smudge Detected'
               : 'Submit & Run CV Verification'}
           </button>
         </form>
@@ -907,8 +968,9 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
               gps: formData.gps || '24.5748, 80.8321',
               cvPipeline: {
                 blurLaplacianFilter: formData.blurScore !== undefined
-                  ? `${formData.blurScore} (${formData.isBlurry ? 'REJECTED: Blurry' : 'PASS: Sharp'})`
+                  ? `${formData.blurScore} (${formData.isBlurry ? 'REJECTED: Blurry' : formData.isSmudged ? 'REJECTED: Lens Smudge' : 'PASS: Sharp'})`
                   : 'Pass (>100 threshold)',
+                smudgeFilter: formData.isSmudged ? 'REJECTED (Foggy lens zones detected)' : 'PASS (Clean optics)',
                 detectionTarget: formData.assetType,
                 expectedResolution: '1920x1080',
               },

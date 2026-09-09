@@ -67,9 +67,10 @@ class EvidenceSubmission(BaseModel):
 
 def evaluate_image_blur(photo_base64: str) -> dict:
     """
-    Decodes base64 image data and evaluates image sharpness using
-    the variance of the Laplacian filter (OpenCV cv2.Laplacian).
-    Standard threshold: variance >= 100 is sharp; < 100 is blurry.
+    Decodes base64 image data and evaluates image sharpness and lens clarity using
+    the variance of the Laplacian filter (OpenCV cv2.Laplacian) and multi-zone grid analysis.
+    - Global threshold: variance < 100 is blurry.
+    - Smudge threshold: localized foggy/low-contrast zones while rest has detail.
     """
     try:
         if "," in photo_base64:
@@ -80,19 +81,39 @@ def evaluate_image_blur(photo_base64: str) -> dict:
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if img is None:
-            return {"valid": False, "score": 0.0, "is_blurry": True, "error": "Could not decode image."}
+            return {"valid": False, "score": 0.0, "is_blurry": True, "is_smudged": False, "error": "Could not decode image."}
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        is_blurry = laplacian_var < 100.0
+
+        h, w = gray.shape
+        grid_rows, grid_cols = 4, 4
+        bh, bw = max(4, h // grid_rows), max(4, w // grid_cols)
+        low_variance_zones = 0
+
+        for r in range(grid_rows):
+            for c in range(grid_cols):
+                patch = gray[r * bh : (r + 1) * bh, c * bw : (c + 1) * bw]
+                if patch.size > 0:
+                    patch_var = float(cv2.Laplacian(patch, cv2.CV_64F).var())
+                    patch_std = float(np.std(patch))
+                    if patch_var < 40.0 or patch_std < 7.0:
+                        low_variance_zones += 1
+
+        is_smudged = not is_blurry and low_variance_zones >= 2 and laplacian_var > 120.0
 
         return {
             "valid": True,
             "score": round(laplacian_var, 2),
-            "is_blurry": laplacian_var < 100.0,
+            "is_blurry": is_blurry,
+            "is_smudged": is_smudged,
+            "is_rejected": is_blurry or is_smudged,
+            "low_variance_zones": low_variance_zones,
             "threshold": 100.0,
         }
     except Exception as e:
-        return {"valid": False, "score": 0.0, "is_blurry": False, "error": str(e)}
+        return {"valid": False, "score": 0.0, "is_blurry": False, "is_smudged": False, "is_rejected": False, "error": str(e)}
 
 
 class EvidenceItem(BaseModel):
@@ -328,16 +349,23 @@ def submit_evidence(submission: EvidenceSubmission):
     if not submission.village or not submission.assetType:
         raise HTTPException(status_code=400, detail="Village and Asset Type are required.")
 
-    # Real Computer Vision Blur Check (OpenCV Laplacian Variance)
+    # Real Computer Vision Blur & Smudge Check (OpenCV Laplacian Variance)
     blur_info = None
     if submission.photoBase64:
         blur_info = evaluate_image_blur(submission.photoBase64)
-        if blur_info.get("valid") and blur_info.get("is_blurry"):
-            # REJECT blurry image
-            raise HTTPException(
-                status_code=422,
-                detail=f"Image rejected: Blurry photo detected (Laplacian score: {blur_info['score']} < threshold {blur_info['threshold']}). Please hold camera steady and recapture a clear photograph."
-            )
+        if blur_info.get("valid"):
+            if blur_info.get("is_blurry"):
+                # REJECT blurry image
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Image rejected: Blurry photo detected (Laplacian score: {blur_info['score']} < threshold {blur_info['threshold']}). Please hold camera steady and recapture a clear photograph."
+                )
+            elif blur_info.get("is_smudged"):
+                # REJECT smudged image
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Image rejected: Camera lens smudge or fingerprint detected ({blur_info.get('low_variance_zones', 2)} foggy zones). Please clean the camera lens and recapture."
+                )
 
     # Computer Vision observation analysis:
     obs_lower = (submission.observation or "").lower()
