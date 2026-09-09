@@ -843,6 +843,43 @@ tbody tr:hover {
   color: var(--color-text-light);
 }
 
+.status-pill.error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+.blur-status-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.blur-status-badge.sharp {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.blur-status-badge.blurry {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  animation: shake 0.3s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
 .photo-preview-container {
   margin-top: 0.5rem;
   position: relative;
@@ -858,6 +895,7 @@ tbody tr:hover {
   height: 100%;
   object-fit: cover;
 }
+
 
 /* Help / API Payload Preview Panel */
 .help-panel {

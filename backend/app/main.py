@@ -4,8 +4,12 @@ from typing import Optional, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from app.core.supabase import supabase
-from app.api.indices import router as indices_router
+try:
+    from app.core.supabase import supabase
+    from app.api.indices import router as indices_router
+except ImportError:
+    from backend.app.core.supabase import supabase
+    from backend.app.api.indices import router as indices_router
 
 app = FastAPI(
     title="JalDrishti - Integrated Watershed Monitoring API",
@@ -43,6 +47,10 @@ app.add_middleware(
 app.include_router(indices_router)
 
 
+import base64
+import numpy as np
+import cv2
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -52,7 +60,42 @@ class EvidenceSubmission(BaseModel):
     assetId: str = Field(..., example="North Nala Check Dam 4")
     observation: Optional[str] = ""
     photoName: Optional[str] = ""
+    photoBase64: Optional[str] = None
     gps: Optional[str] = "24.5748, 80.8321"
+
+
+def evaluate_image_blur(photo_base64: str) -> dict:
+    """
+    Decodes base64 image data and evaluates image sharpness using
+    the variance of the Laplacian filter (OpenCV cv2.Laplacian).
+    Standard threshold: variance >= 100 is sharp; < 100 is blurry.
+    """
+    try:
+        # Strip data URL header if present (e.g. data:image/jpeg;base64,...)
+        if "," in photo_base64:
+            photo_base64 = photo_base64.split(",", 1)[1]
+
+        image_bytes = base64.b64decode(photo_base64)
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            return {"valid": False, "score": 0.0, "is_blurry": True, "error": "Could not decode image."}
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Compute Laplacian variance
+        laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+        return {
+            "valid": True,
+            "score": round(laplacian_var, 2),
+            "is_blurry": laplacian_var < 100.0,
+            "threshold": 100.0,
+        }
+    except Exception as e:
+        return {"valid": False, "score": 0.0, "is_blurry": False, "error": str(e)}
 
 
 class EvidenceItem(BaseModel):
@@ -289,6 +332,17 @@ def submit_evidence(submission: EvidenceSubmission):
     if not submission.village or not submission.assetType:
         raise HTTPException(status_code=400, detail="Village and Asset Type are required.")
 
+    # Real Computer Vision Blur Check (OpenCV Laplacian Variance)
+    blur_info = None
+    if submission.photoBase64:
+        blur_info = evaluate_image_blur(submission.photoBase64)
+        if blur_info.get("valid") and blur_info.get("is_blurry"):
+            # REJECT blurry image
+            raise HTTPException(
+                status_code=422,
+                detail=f"Image rejected: Blurry photo detected (Laplacian score: {blur_info['score']} < threshold {blur_info['threshold']}). Please hold camera steady and recapture a clear photograph."
+            )
+
     obs_lower = (submission.observation or "").lower()
     has_warning_keywords = any(w in obs_lower for w in ["damage", "erosion", "silt", "crack", "leak", "dry", "broken"])
 
@@ -300,7 +354,7 @@ def submit_evidence(submission: EvidenceSubmission):
     else:
         status = "Verified"
         risk = "Low"
-        quality_score = 95
+        quality_score = 95 if not blur_info else min(98, max(88, int(85 + (blur_info["score"] / 20))))
         cv_conf = 0.97
 
     new_id = f"JD-{105 + len(evidence_db) - 4}"

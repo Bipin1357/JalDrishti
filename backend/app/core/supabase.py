@@ -3,7 +3,11 @@ import os
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
-from supabase import create_client, Client
+try:
+    from supabase import create_client, Client
+except ImportError:
+    create_client = None
+    Client = None
 
 # Load environment variables from CWD, backend/.env, or project root .env
 load_dotenv()

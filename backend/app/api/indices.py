@@ -7,8 +7,12 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.services.indices import calculate_before_after
-from app.services.dataset_sync import ensure_dataset_synced
+try:
+    from app.services.indices import calculate_before_after
+    from app.services.dataset_sync import ensure_dataset_synced
+except ImportError:
+    from backend.app.services.indices import calculate_before_after
+    from backend.app.services.dataset_sync import ensure_dataset_synced
 
 router = APIRouter(prefix="/api/indices", tags=["Indices"])
 

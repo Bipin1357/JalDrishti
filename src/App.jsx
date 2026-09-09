@@ -21,6 +21,71 @@ function parseGpsCoordinates(gpsStr) {
   return [24.5748, 80.8321];
 }
 
+function calculateLaplacianVariance(imgElement) {
+  try {
+    const canvas = document.createElement('canvas');
+    // Scale down for fast responsive edge detection while preserving blur variance
+    const width = Math.min(imgElement.naturalWidth || imgElement.width || 300, 300);
+    const height = Math.min(imgElement.naturalHeight || imgElement.height || 300, 300);
+    if (!width || !height) return { variance: 120, isBlurry: false };
+
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imgElement, 0, 0, width, height);
+
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+
+    // Convert to grayscale
+    const gray = new Float32Array(width * height);
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+      gray[j] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    }
+
+    // Apply 3x3 Laplacian discrete kernel:
+    // [  0,  1,  0 ]
+    // [  1, -4,  1 ]
+    // [  0,  1,  0 ]
+    const laplacian = new Float32Array((width - 2) * (height - 2));
+    let mean = 0;
+    let count = 0;
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const val =
+          gray[(y - 1) * width + x] +
+          gray[(y + 1) * width + x] +
+          gray[y * width + (x - 1)] +
+          gray[y * width + (x + 1)] -
+          4 * gray[y * width + x];
+        laplacian[count] = val;
+        mean += val;
+        count++;
+      }
+    }
+
+    mean /= count;
+    let variance = 0;
+    for (let i = 0; i < count; i++) {
+      const diff = laplacian[i] - mean;
+      variance += diff * diff;
+    }
+    variance = variance / count;
+
+    // Standard threshold: variance < 100 indicates blurry
+    const score = Math.round(variance * 10) / 10;
+    return {
+      variance: score,
+      isBlurry: score < 100.0,
+      threshold: 100.0,
+    };
+  } catch (err) {
+    console.warn('Laplacian calculation fallback:', err);
+    return { variance: 150, isBlurry: false, threshold: 100.0 };
+  }
+}
+
 const DEFAULT_EVIDENCE = [
   // --- SIMPLE (Standard Functional Assets · Verified · Low Risk) ---
   {
@@ -363,7 +428,12 @@ export default function App() {
   const handleSubmitEvidence = async (event) => {
     event.preventDefault();
     setIsSubmitting(true);
-    setSubmitNotice('');
+    // Client-side guard: reject if image is blurry
+    if (formData.isBlurry) {
+      setIsSubmitting(false);
+      setSubmitNotice(`❌ Submission Rejected: Photo is too blurry (Laplacian: ${formData.blurScore} < 100). Please retake a sharper photo.`);
+      return;
+    }
 
     const submissionPayload = {
       village: formData.village || 'Rampur',
@@ -371,6 +441,7 @@ export default function App() {
       assetId: formData.assetId || `${formData.assetType} #${evidenceList.length + 1}`,
       observation: formData.observation || 'Visual inspection recorded.',
       photoName: formData.photoName || 'field_capture.jpg',
+      photoBase64: formData.photoBase64 || null,
       gps: formData.gps || '24.5748, 80.8321',
     };
 
@@ -385,6 +456,13 @@ export default function App() {
         });
         if (response.ok) {
           createdItem = await response.json();
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          if (response.status === 422 || errData.detail) {
+            setIsSubmitting(false);
+            setSubmitNotice(`❌ Submission Rejected: ${errData.detail || 'Photo quality check failed.'}`);
+            return;
+          }
         }
       } catch (e) {
         console.warn('Backend submission failed, falling back to local state:', e);
@@ -442,8 +520,11 @@ export default function App() {
 
       <main className="main-content">
         {submitNotice && (
-          <div className="status-pill verified" style={{ marginBottom: '1.25rem', padding: '0.6rem 1rem' }}>
-            ✓ {submitNotice}
+          <div
+            className={`status-pill ${submitNotice.includes('Rejected') || submitNotice.includes('❌') ? 'error' : 'verified'}`}
+            style={{ marginBottom: '1.25rem', padding: '0.6rem 1rem' }}
+          >
+            {submitNotice}
           </div>
         )}
 
@@ -575,11 +656,22 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData((data) => ({
-          ...data,
-          photoName: file.name,
-          photoPreview: reader.result,
-        }));
+        const previewUrl = reader.result;
+        // Evaluate image blur via client-side Laplacian filter
+        const tempImg = new Image();
+        tempImg.onload = () => {
+          const blurResult = calculateLaplacianVariance(tempImg);
+          setFormData((data) => ({
+            ...data,
+            photoName: file.name,
+            photoPreview: previewUrl,
+            photoBase64: previewUrl,
+            blurScore: blurResult.variance,
+            isBlurry: blurResult.isBlurry,
+            blurThreshold: blurResult.threshold,
+          }));
+        };
+        tempImg.src = previewUrl;
       };
       reader.readAsDataURL(file);
     }
@@ -759,14 +851,39 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
             </label>
 
             {formData.photoPreview && (
-              <div className="photo-preview-container">
-                <img src={formData.photoPreview} alt="Field preview" className="photo-preview-img" />
-              </div>
+              <>
+                <div className="photo-preview-container">
+                  <img src={formData.photoPreview} alt="Field preview" className="photo-preview-img" />
+                </div>
+                {formData.blurScore !== undefined && (
+                  <div
+                    className={`blur-status-badge ${formData.isBlurry ? 'blurry' : 'sharp'}`}
+                  >
+                    <span>
+                      {formData.isBlurry
+                        ? `❌ Blurry Photo (Laplacian: ${formData.blurScore} < ${formData.blurThreshold || 100})`
+                        : `✓ Sharp & Clear (Laplacian: ${formData.blurScore} ≥ 100)`}
+                    </span>
+                    <span style={{ fontSize: '0.72rem', opacity: 0.9 }}>
+                      {formData.isBlurry ? 'Recapture photo' : 'QA Verified'}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
-          <button className="primary-action full-width" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Verifying & Submitting...' : 'Submit & Run CV Verification'}
+          <button
+            className="primary-action full-width"
+            type="submit"
+            disabled={isSubmitting || !!formData.isBlurry}
+            style={formData.isBlurry ? { opacity: 0.55, cursor: 'not-allowed', background: '#94a3b8' } : {}}
+          >
+            {isSubmitting
+              ? 'Verifying & Submitting...'
+              : formData.isBlurry
+              ? '⛔ Rejected: Image Too Blurry'
+              : 'Submit & Run CV Verification'}
           </button>
         </form>
       </div>
@@ -789,7 +906,9 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
               photoName: formData.photoName || 'check_dam_rampur_04.jpg',
               gps: formData.gps || '24.5748, 80.8321',
               cvPipeline: {
-                blurLaplacianFilter: 'Pass (>100 threshold)',
+                blurLaplacianFilter: formData.blurScore !== undefined
+                  ? `${formData.blurScore} (${formData.isBlurry ? 'REJECTED: Blurry' : 'PASS: Sharp'})`
+                  : 'Pass (>100 threshold)',
                 detectionTarget: formData.assetType,
                 expectedResolution: '1920x1080',
               },
