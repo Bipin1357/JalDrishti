@@ -8,7 +8,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
   : '';
 
-export function parseGpsCoordinates(gpsStr) {
+function parseGpsCoordinates(gpsStr) {
   if (!gpsStr) return [24.5748, 80.8321];
   const cleaned = String(gpsStr).replace(/[^\d.,\-\s]/g, '').trim();
   const parts = cleaned.split(/[,\s]+/).map(Number).filter((n) => !isNaN(n));
