@@ -1382,33 +1382,7 @@ function MapPage({ evidenceItems, formData, onUpdateGps, onNavigate }) {
           )}
         </div>
 
-        {/* Preset Locations Bar */}
-        <div className="gis-presets-bar">
-          <span style={{ fontWeight: 600, color: '#475569' }}>Real-World Field Assets:</span>
-          {[
-            { name: '📍 Ralegan Siddhi (Simple)', coords: '18.9186, 74.4172' },
-            { name: '📍 Saurashtra RCC (Simple)', coords: '22.0325, 71.2053' },
-            { name: '📍 Nagod Weir (Simple)', coords: '24.5748, 80.8321' },
-            { name: '📍 Anantapur Pond (Simple)', coords: '14.4136, 77.7214' },
-            { name: '⚡ Kothapally ICRISAT (Complex)', coords: '17.3667, 78.1167' },
-            { name: '⚡ Hiware Bazar CCT (Complex)', coords: '19.0345, 74.5986' },
-            { name: '⚡ Shirpur Deep Dam (Complex)', coords: '21.3508, 74.8812' },
-            { name: '⚡ Laporiya Chauka (Complex)', coords: '26.6021, 75.2981' },
-            { name: '⚠️ Arvari Johad Breach (Needs Review)', coords: '27.1856, 76.2418' },
-            { name: '⚠️ Sukhomajri Silt Dam (Needs Review)', coords: '30.7932, 76.9048' },
-            { name: '⚠️ Almora Kosi Failure (Needs Review)', coords: '29.5982, 79.6453' },
-            { name: '⚠️ Kadiri Piping Seepage (Needs Review)', coords: '14.1120, 78.1560' },
-          ].map((loc) => (
-            <button
-              key={loc.name}
-              type="button"
-              className={`gis-preset-chip ${(formData?.gps || '').startsWith(loc.coords.slice(0, 7)) ? 'active' : ''}`}
-              onClick={() => onUpdateGps && onUpdateGps(loc.coords)}
-            >
-              {loc.name}
-            </button>
-          ))}
-        </div>
+
 
         {/* Live Earth Engine Telemetry Banner */}
         <div className="ee-telemetry-banner">

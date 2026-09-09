@@ -914,7 +914,7 @@ tbody tr:hover {
    Geo Map Page
    ========================================================================== */
 .map-layout {
-  grid-template-columns: 1.35fr 0.9fr;
+  grid-template-columns: 1.7fr 0.8fr;
 }
 
 .map-panel {
@@ -960,7 +960,7 @@ tbody tr:hover {
 .map-canvas {
   position: relative;
   width: 100%;
-  height: 420px;
+  height: 600px;
   background: 
     linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%),
     radial-gradient(#94a3b8 1px, transparent 1px);
@@ -1329,7 +1329,7 @@ tbody tr:hover {
 .map-canvas {
   position: relative;
   width: 100%;
-  height: 490px;
+  height: 600px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   overflow: hidden;
