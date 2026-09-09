@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import L from 'leaflet';
 import Header from './components/Header';
 
 // In development: API_BASE is '' so requests use Vite dev server proxy (:5501 -> :8000)
@@ -7,62 +8,192 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
   : '';
 
+export function parseGpsCoordinates(gpsStr) {
+  if (!gpsStr) return [24.5748, 80.8321];
+  const cleaned = String(gpsStr).replace(/[^\d.,\-\s]/g, '').trim();
+  const parts = cleaned.split(/[,\s]+/).map(Number).filter((n) => !isNaN(n));
+  if (parts.length >= 2) {
+    const [lat, lng] = parts;
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return [lat, lng];
+    }
+  }
+  return [24.5748, 80.8321];
+}
+
 const DEFAULT_EVIDENCE = [
+  // --- SIMPLE (Standard Functional Assets · Verified · Low Risk) ---
   {
-    id: 'JD-104',
-    village: 'Rampur',
+    id: 'IND-CD-01',
+    village: 'Ralegan Siddhi (Ahmednagar, MH)',
     assetType: 'Check Dam',
-    assetId: 'North Nala Check Dam 4',
-    observation: 'Masonry intact, upstream water retained at normal spillway height.',
-    photoName: 'check_dam_rampur_04.jpg',
-    gps: '24.5748, 80.8321',
+    assetId: 'Ralegan Siddhi Masonry Nalla Bund #04',
+    observation: 'Stone masonry nalla bund across seasonal stream in intact condition. 1.8m overflow spillway clear, post-monsoon baseflow clear of debris, downstream apron protected with hand-packed boulder pitching.',
+    photoName: 'ralegan_siddhi_nalla_bund_04.jpg',
+    gps: '18.9186, 74.4172',
     status: 'Verified',
     risk: 'Low',
     date: 'Today, 14:20',
-    qualityScore: 94,
-    cvConfidence: 0.96,
+    qualityScore: 95,
+    cvConfidence: 0.97,
   },
   {
-    id: 'JD-103',
-    village: 'Kalyanpur',
-    assetType: 'Farm Pond',
-    assetId: 'Community Farm Pond 2',
-    observation: 'Side embankment erosion noticed after heavy rain; silt accumulation.',
-    photoName: 'farm_pond_kalyanpur_02.jpg',
-    gps: '24.5612, 80.8417',
-    status: 'Needs Review',
-    risk: 'Medium',
-    date: 'Yesterday, 11:05',
-    qualityScore: 78,
-    cvConfidence: 0.84,
-  },
-  {
-    id: 'JD-102',
-    village: 'Bhagwanpur',
-    assetType: 'Contour Trench',
-    assetId: 'East Ridge Trenches Tier-B',
-    observation: 'Trenches holding runoff sediment effectively; surrounding grass growing.',
-    photoName: 'contour_trench_bhagwanpur.jpg',
-    gps: '24.5511, 80.8543',
+    id: 'IND-CD-02',
+    village: 'Jasdan (Rajkot, GJ)',
+    assetType: 'Check Dam',
+    assetId: 'Sardar Patel Participatory RCC Check Dam #12',
+    observation: 'Reinforced cement concrete check dam on Bhadar river tributary. Cutoff walls sound, silt trap clear, retaining 85% impounded reservoir capacity for rabi crop micro-irrigation.',
+    photoName: 'jasdan_sardar_patel_checkdam_12.jpg',
+    gps: '22.0325, 71.2053',
     status: 'Verified',
     risk: 'Low',
-    date: '2 days ago',
+    date: 'Today, 11:35',
+    qualityScore: 93,
+    cvConfidence: 0.95,
+  },
+  {
+    id: 'IND-CD-03',
+    village: 'Nagod (Satna, MP)',
+    assetType: 'Check Dam',
+    assetId: 'Ken-Tributary Masonry Weir #02',
+    observation: 'Straight gravity masonry weir in intact condition. Upstream ponding depth 1.4m. Scour apron and cutoff wall free of cracks; spillway discharging clean baseflow.',
+    photoName: 'nagod_ken_tributary_weir_02.jpg',
+    gps: '24.5748, 80.8321',
+    status: 'Verified',
+    risk: 'Low',
+    date: 'Yesterday, 16:50',
+    qualityScore: 92,
+    cvConfidence: 0.94,
+  },
+  {
+    id: 'IND-CD-04',
+    village: 'Dharmavaram (Anantapur, AP)',
+    assetType: 'Farm Pond',
+    assetId: 'Rayalaseema IWMP Khet Talab #08',
+    observation: '1,200 m³ unlined trapezoidal farm pond excavated in red sandy loam. Embankments stabilized with vetiver grass, inlet silt trap operating at full efficiency.',
+    photoName: 'dharmavaram_farm_pond_08.jpg',
+    gps: '14.4136, 77.7214',
+    status: 'Verified',
+    risk: 'Low',
+    date: 'Yesterday, 10:15',
     qualityScore: 91,
     cvConfidence: 0.93,
   },
+
+  // --- COMPLEX (Multi-Tiered & Engineered Watershed Systems · Verified · Low Risk) ---
   {
-    id: 'JD-101',
-    village: 'Shivpuri',
-    assetType: 'Percolation Tank',
-    assetId: 'West Bund Percolation Tank',
-    observation: 'Recharge aquifer level responding positively based on nearby borewell.',
-    photoName: 'percolation_tank_shivpuri.jpg',
-    gps: '24.5820, 80.8190',
+    id: 'IND-CD-05',
+    village: 'Kothapally (Ranga Reddy, TS)',
+    assetType: 'Check Dam',
+    assetId: 'Adarsha ICRISAT Benchmark Check Dam & Recharge Shaft #01',
+    observation: 'Engineered masonry check dam paired with an in-situ gravel-sand filter recharge shaft tapping fractured granitic aquifer; raised local water table by 3.2m across 45 community borewells.',
+    photoName: 'kothapally_icrisat_recharge_dam.jpg',
+    gps: '17.3667, 78.1167',
+    status: 'Verified',
+    risk: 'Low',
+    date: '2 days ago',
+    qualityScore: 97,
+    cvConfidence: 0.98,
+  },
+  {
+    id: 'IND-CD-06',
+    village: 'Hiware Bazar (Ahmednagar, MH)',
+    assetType: 'Contour Trench',
+    assetId: 'Hiware Bazar Ridge Continuous Contour Trenches (CCT)',
+    observation: 'Ridge-to-valley continuous and staggered contour trenches across 15% Deccan basalt slope; dense vegetative berms with Stylosanthes hamata decelerating storm runoff by 82%.',
+    photoName: 'hiware_bazar_cct_ridge.jpg',
+    gps: '19.0345, 74.5986',
+    status: 'Verified',
+    risk: 'Low',
+    date: '2 days ago',
+    qualityScore: 96,
+    cvConfidence: 0.96,
+  },
+  {
+    id: 'IND-CD-07',
+    village: 'Shirpur (Dhule, MH)',
+    assetType: 'Check Dam',
+    assetId: 'Shirpur Pattern Deep Channel Recharge Dam #03',
+    observation: 'Stream channel deepened 15m to porous murrum strata; mass concrete check dam storing 150,000 m³ without surface submergence of agricultural land; dual dry-season infiltration bores active.',
+    photoName: 'shirpur_deep_recharge_dam_03.jpg',
+    gps: '21.3508, 74.8812',
     status: 'Verified',
     risk: 'Low',
     date: '3 days ago',
-    qualityScore: 89,
-    cvConfidence: 0.91,
+    qualityScore: 94,
+    cvConfidence: 0.95,
+  },
+  {
+    id: 'IND-CD-08',
+    village: 'Laporiya (Jaipur, RJ)',
+    assetType: 'Contour Trench',
+    assetId: 'Laporiya Traditional Chauka Pastureland System',
+    observation: 'Interconnected rectangular Chauka dykes (0.6m bunds) slowing overland flow to 0.1 m/s, recharging shallow aquifers and retaining soil moisture across 400 hectares of common grazing land.',
+    photoName: 'laporiya_chauka_pastureland.jpg',
+    gps: '26.6021, 75.2981',
+    status: 'Verified',
+    risk: 'Low',
+    date: '3 days ago',
+    qualityScore: 93,
+    cvConfidence: 0.94,
+  },
+
+  // --- NEEDS REVIEW (Structural Breaches, Heavy Silting & Piping Risks) ---
+  {
+    id: 'IND-CD-09',
+    village: 'Thanagazi (Alwar, RJ)',
+    assetType: 'Check Dam',
+    assetId: 'Bhaonta-Kolyala Arvari River Johad #03',
+    observation: 'Severe 3.8m breach on left shoulder of crescent earthen johad embankment caused by 120mm cloudburst surge. Active headward gully erosion threatening upstream pastureland; urgent stone rip-rap and core wall rebuilding required.',
+    photoName: 'arvari_johad_breach_alwar.jpg',
+    gps: '27.1856, 76.2418',
+    status: 'Needs Review',
+    risk: 'High',
+    date: '4 days ago',
+    qualityScore: 76,
+    cvConfidence: 0.81,
+  },
+  {
+    id: 'IND-CD-10',
+    village: 'Sukhomajri (Panchkula, HR)',
+    assetType: 'Check Dam',
+    assetId: 'Sukhomajri Shivalik Foothills Silt Dam #02',
+    observation: 'Reservoir volume 82% choked by loose Shivalik sandstone and shale silt load. Emergency drop-inlet spillway partially obstructed by woody debris; requires mechanical desiltation.',
+    photoName: 'sukhomajri_silt_choked_dam.jpg',
+    gps: '30.7932, 76.9048',
+    status: 'Needs Review',
+    risk: 'High',
+    date: '4 days ago',
+    qualityScore: 73,
+    cvConfidence: 0.79,
+  },
+  {
+    id: 'IND-CD-11',
+    village: 'Almora (Kumaon, UK)',
+    assetType: 'Check Dam',
+    assetId: 'Kosi Springshed Vegetative Crib-Wall Dam #07',
+    observation: 'Flash torrent caused right-bank bypass flanking erosion behind dry-stone masonry wing wall. Downstream wire gabion mattress disrupted by boulder impact; needs bank stabilization and vegetative crib reinforcement.',
+    photoName: 'kosi_springshed_cribwall_failure.jpg',
+    gps: '29.5982, 79.6453',
+    status: 'Needs Review',
+    risk: 'Medium',
+    date: '5 days ago',
+    qualityScore: 80,
+    cvConfidence: 0.84,
+  },
+  {
+    id: 'IND-CD-12',
+    village: 'Kadiri (Anantapur, AP)',
+    assetType: 'Percolation Tank',
+    assetId: 'Kadiri Micro-Catchment Percolation Tank #05',
+    observation: 'Deep longitudinal tension cracks (12m length) along downstream bund crest; cloudy toe seepage indicates progressive internal piping. Reservoir impounded silt blinding restricts infiltration to 0.02 m/day.',
+    photoName: 'kadiri_tank_piping_seepage.jpg',
+    gps: '14.1120, 78.1560',
+    status: 'Needs Review',
+    risk: 'Medium',
+    date: '5 days ago',
+    qualityScore: 78,
+    cvConfidence: 0.83,
   },
 ];
 
@@ -326,10 +457,18 @@ export default function App() {
             setFormData={setFormData}
             onSubmit={handleSubmitEvidence}
             isSubmitting={isSubmitting}
+            onNavigate={navigate}
           />
         )}
 
-        {currentPage === 'map' && <MapPage evidenceItems={evidenceList} />}
+        {currentPage === 'map' && (
+          <MapPage
+            evidenceItems={evidenceList}
+            formData={formData}
+            onUpdateGps={(newGps) => setFormData((prev) => ({ ...prev, gps: newGps }))}
+            onNavigate={navigate}
+          />
+        )}
 
         {currentPage === 'analysis' && (
           <AnalysisPage
@@ -424,7 +563,7 @@ function MetricCard({ label, value, trend }) {
 // ---------------------------------------------------------------------------
 // Evidence Capture Page
 // ---------------------------------------------------------------------------
-function EvidencePage({ formData, setFormData, onSubmit, isSubmitting }) {
+function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigate }) {
   const [gpsStatus, setGpsStatus] = useState('');
 
   const updateField = (field, value) => {
@@ -467,16 +606,38 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting }) {
     }
   };
 
-  const fillDemoData = () => {
-    setFormData({
-      village: 'Rampur (Satna District)',
-      assetType: 'Check Dam',
-      assetId: 'North Nala Check Dam #07',
-      observation: 'Masonry barrier holding approx 1.2m depth of rainwater. Spillway clean without boulder silt.',
-      photoName: 'check_dam_sample.jpg',
-      photoPreview: null,
-      gps: '24.5748, 80.8321',
-    });
+  const fillDemoData = (mode = 'complex') => {
+    if (mode === 'review') {
+      setFormData({
+        village: 'Thanagazi (Alwar, RJ)',
+        assetType: 'Check Dam',
+        assetId: 'Bhaonta-Kolyala Arvari River Johad #03',
+        observation: 'Severe 3.8m breach on left shoulder of crescent earthen johad embankment caused by 120mm cloudburst surge. Active headward gully erosion threatening upstream pastureland; urgent stone rip-rap and core wall rebuilding required.',
+        photoName: 'arvari_johad_breach_alwar.jpg',
+        photoPreview: null,
+        gps: '27.1856, 76.2418',
+      });
+    } else if (mode === 'simple') {
+      setFormData({
+        village: 'Ralegan Siddhi (Ahmednagar, MH)',
+        assetType: 'Check Dam',
+        assetId: 'Ralegan Siddhi Masonry Nalla Bund #04',
+        observation: 'Stone masonry nalla bund across seasonal stream in intact condition. 1.8m overflow spillway clear, post-monsoon baseflow clear of debris, downstream apron protected with hand-packed boulder pitching.',
+        photoName: 'ralegan_siddhi_nalla_bund_04.jpg',
+        photoPreview: null,
+        gps: '18.9186, 74.4172',
+      });
+    } else {
+      setFormData({
+        village: 'Kothapally (Ranga Reddy, TS)',
+        assetType: 'Check Dam',
+        assetId: 'Adarsha ICRISAT Benchmark Check Dam & Recharge Shaft #01',
+        observation: 'Engineered masonry check dam paired with an in-situ gravel-sand filter recharge shaft tapping fractured granitic aquifer; raised local water table by 3.2m across 45 community borewells.',
+        photoName: 'kothapally_icrisat_recharge_dam.jpg',
+        photoPreview: null,
+        gps: '17.3667, 78.1167',
+      });
+    }
   };
 
   return (
@@ -489,14 +650,30 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting }) {
           verification and government watershed records.
         </p>
 
-        <div style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
           <button
             type="button"
             className="secondary-action"
-            onClick={fillDemoData}
-            style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}
+            onClick={() => fillDemoData('complex')}
+            style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
           >
-            ⚡ Auto-Fill Sample Record
+            ⚡ Complex: ICRISAT Benchmark Dam (TS)
+          </button>
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => fillDemoData('simple')}
+            style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+          >
+            ⚡ Simple: Ralegan Siddhi Nalla Bund (MH)
+          </button>
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => fillDemoData('review')}
+            style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', borderColor: '#fca5a5', color: '#b91c1c' }}
+          >
+            ⚠️ Needs Review: Arvari Johad Breach (RJ)
           </button>
         </div>
 
@@ -509,7 +686,7 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting }) {
               className="form-input"
               value={formData.village}
               onChange={(e) => updateField('village', e.target.value)}
-              placeholder="e.g. Rampur, Satna Block"
+              placeholder="e.g. Ralegan Siddhi, Ahmednagar"
               required
             />
           </div>
@@ -523,10 +700,10 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting }) {
               value={formData.assetType}
               onChange={(e) => updateField('assetType', e.target.value)}
             >
-              <option value="Check Dam">Check Dam (Masonry / Earthen)</option>
+              <option value="Check Dam">Check Dam (Masonry / Earthen / Johad)</option>
               <option value="Farm Pond">Farm Pond (Khet Talab)</option>
               <option value="Percolation Tank">Percolation Tank</option>
-              <option value="Contour Trench">Contour Trench / Bund</option>
+              <option value="Contour Trench">Contour Trench / Bund / Chauka</option>
               <option value="Plantation Area">Plantation / Catchment Buffer</option>
             </select>
           </div>
@@ -539,27 +716,83 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting }) {
               className="form-input"
               value={formData.assetId}
               onChange={(e) => updateField('assetId', e.target.value)}
-              placeholder="e.g. North Nala Check Dam 4"
+              placeholder="e.g. Masonry Nalla Bund #04"
               required
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label">
-              GPS Geotag Location
-              {gpsStatus && <span style={{ fontSize: '0.78rem', color: '#15803d' }}>{gpsStatus}</span>}
-            </label>
-            <div className="gps-input-row">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className="form-label" style={{ marginBottom: 0 }}>
+                GPS Geotag Location <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              {gpsStatus && (
+                <span style={{ fontSize: '0.78rem', color: '#15803d', fontWeight: 600 }}>{gpsStatus}</span>
+              )}
+            </div>
+            <div className="gps-input-row" style={{ marginTop: '0.4rem' }}>
               <input
                 className="form-input"
                 value={formData.gps}
                 onChange={(e) => updateField('gps', e.target.value)}
-                placeholder="Latitude, Longitude"
+                placeholder="Latitude, Longitude (e.g. 18.9186, 74.4172)"
                 required
               />
               <button type="button" className={`btn-gps ${gpsStatus ? 'captured' : ''}`} onClick={captureGPS}>
                 📍 {gpsStatus === 'Locked ✓' ? 'GPS Captured' : 'Get Location'}
               </button>
+            </div>
+
+            <div className="evidence-gis-preview">
+              <div>
+                <strong>🌐 Spatial GIS Synced:</strong>{' '}
+                <span style={{ color: '#0369a1', fontFamily: 'monospace', fontWeight: 600 }}>
+                  {formData.gps || '18.9186, 74.4172'}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="evidence-gis-preview-btn"
+                onClick={() => onNavigate && onNavigate('map')}
+                title="Open interactive satellite map at this location"
+              >
+                🗺️ View in Spatial GIS
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.35rem',
+                flexWrap: 'wrap',
+                marginTop: '0.45rem',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Pan-India Presets:</span>
+              {[
+                { name: '📍 Ralegan Siddhi, MH (Simple)', coords: '18.9186, 74.4172' },
+                { name: '📍 Saurashtra RCC, GJ (Simple)', coords: '22.0325, 71.2053' },
+                { name: '📍 Nagod Ken Weir, MP (Simple)', coords: '24.5748, 80.8321' },
+                { name: '📍 Anantapur Pond, AP (Simple)', coords: '14.4136, 77.7214' },
+                { name: '⚡ Kothapally ICRISAT, TS (Complex)', coords: '17.3667, 78.1167' },
+                { name: '⚡ Hiware Bazar CCT, MH (Complex)', coords: '19.0345, 74.5986' },
+                { name: '⚡ Shirpur Deep Dam, MH (Complex)', coords: '21.3508, 74.8812' },
+                { name: '⚡ Laporiya Chauka, RJ (Complex)', coords: '26.6021, 75.2981' },
+                { name: '⚠️ Arvari Johad Breach, RJ (Needs Review)', coords: '27.1856, 76.2418' },
+                { name: '⚠️ Sukhomajri Silt Dam, HR (Needs Review)', coords: '30.7932, 76.9048' },
+                { name: '⚠️ Almora Kosi Failure, UK (Needs Review)', coords: '29.5982, 79.6453' },
+                { name: '⚠️ Kadiri Piping Seepage, AP (Needs Review)', coords: '14.1120, 78.1560' },
+              ].map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  className={`gis-preset-chip ${(formData.gps || '').startsWith(preset.coords.slice(0, 7)) ? 'active' : ''}`}
+                  onClick={() => updateField('gps', preset.coords)}
+                >
+                  {preset.name}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -636,50 +869,424 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting }) {
 }
 
 // ---------------------------------------------------------------------------
-// Geo Map Screen
+// Geo Map Screen (Google Earth Engine & Spatial GIS Viewer)
 // ---------------------------------------------------------------------------
-function MapPage({ evidenceItems }) {
+function MapPage({ evidenceItems, formData, onUpdateGps, onNavigate }) {
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const activeGpsMarkerRef = useRef(null);
+  const accuracyCircleRef = useRef(null);
+  const watershedLayerRef = useRef(null);
+  const ndviLayerRef = useRef(null);
+  const assetsLayerRef = useRef(null);
+  const googleSatLayerRef = useRef(null);
+
   const [activeLayers, setActiveLayers] = useState({
     watershed: true,
     ndvi: true,
     assets: true,
+    satellite: true,
   });
 
   const [selectedPoint, setSelectedPoint] = useState(null);
+  const [eeStatus, setEeStatus] = useState({
+    installed: true,
+    initialized: false,
+    project: null,
+    status: 'ready',
+    message: '',
+  });
+  const [eeTelemetry, setEeTelemetry] = useState(null);
 
-  const toggleLayer = (layer) => {
-    setActiveLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
+  // Fetch Earth Engine API status
+  useEffect(() => {
+    fetch(`${API_BASE}/api/earthengine/status`)
+      .then((res) => res.json())
+      .then((data) => {
+        setEeStatus(data);
+      })
+      .catch((err) => {
+        console.warn('EE status error:', err);
+      });
+  }, []);
+
+  // Fetch NDVI & spectral telemetry whenever GPS changes
+  useEffect(() => {
+    const coords = parseGpsCoordinates(formData?.gps);
+    if (!coords) return;
+    const [lat, lng] = coords;
+    fetch(`${API_BASE}/api/earthengine/ndvi?lat=${lat}&lng=${lng}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setEeTelemetry(data);
+      })
+      .catch((e) => console.warn('Telemetry error:', e));
+  }, [formData?.gps]);
+
+  // Initialize Leaflet Map
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+
+    const [initLat, initLng] = parseGpsCoordinates(formData?.gps);
+
+    const map = L.map(mapContainerRef.current, {
+      center: [initLat, initLng],
+      zoom: 15,
+      zoomControl: true,
+    });
+    mapInstanceRef.current = map;
+
+    // Google Earth Satellite Hybrid Tile Layer
+    const googleSatelliteHybrid = L.tileLayer(
+      'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+      {
+        maxZoom: 20,
+        attribution: 'Imagery © Google Earth Engine & Google Maps',
+      }
+    );
+    googleSatLayerRef.current = googleSatelliteHybrid;
+    googleSatelliteHybrid.addTo(map);
+
+    // Multi-Region Watershed Catchment Vector Polygons (ISRO/Bhuvan & WRIS Delineations)
+    const watershedGroup = L.featureGroup();
+    watershedLayerRef.current = watershedGroup;
+
+    // 1. Maharashtra Deccan Basalt Watershed (Ralegan Siddhi & Hiware Bazar)
+    const maharashtraBasin = L.polygon([
+      [18.88, 74.38],
+      [19.08, 74.42],
+      [19.09, 74.63],
+      [18.99, 74.66],
+      [18.87, 74.52],
+    ], {
+      color: '#10b981',
+      weight: 2,
+      dashArray: '5, 5',
+      fillColor: '#10b981',
+      fillOpacity: 0.12,
+    }).bindPopup('<b>Ralegan Siddhi & Hiware Bazar Micro-Watershed</b><br><span style="color:#64748b">Area: ~3,400 Ha • Deccan Traps Basalt Catchment</span>');
+    watershedGroup.addLayer(maharashtraBasin);
+
+    // 2. Rajasthan Arvari River Catchment (Thanagazi, Alwar)
+    const arvariBasin = L.polygon([
+      [27.12, 76.17],
+      [27.26, 76.20],
+      [27.24, 76.32],
+      [27.14, 76.29],
+    ], {
+      color: '#eab308',
+      weight: 2,
+      dashArray: '5, 5',
+      fillColor: '#eab308',
+      fillOpacity: 0.12,
+    }).bindPopup('<b>Arvari River Basin (Alwar)</b><br><span style="color:#64748b">Tarun Bharat Sangh Johad Community Watershed</span>');
+    watershedGroup.addLayer(arvariBasin);
+
+    // 3. Telangana Adarsha ICRISAT Benchmark Watershed (Kothapally)
+    const kothapallyBasin = L.polygon([
+      [17.34, 78.08],
+      [17.41, 78.09],
+      [17.40, 78.16],
+      [17.33, 78.14],
+    ], {
+      color: '#06b6d4',
+      weight: 2,
+      dashArray: '5, 5',
+      fillColor: '#06b6d4',
+      fillOpacity: 0.12,
+    }).bindPopup('<b>Adarsha Watershed (Kothapally, ICRISAT)</b><br><span style="color:#64748b">Area: 465 Ha • Semi-Arid Tropical Benchmark Watershed</span>');
+    watershedGroup.addLayer(kothapallyBasin);
+
+    // 4. Gujarat Saurashtra Bhadar Tributary (Jasdan)
+    const saurashtraBasin = L.polygon([
+      [22.00, 71.16],
+      [22.07, 71.18],
+      [22.06, 71.26],
+      [21.99, 71.23],
+    ], {
+      color: '#3b82f6',
+      weight: 2,
+      dashArray: '5, 5',
+      fillColor: '#3b82f6',
+      fillOpacity: 0.12,
+    }).bindPopup('<b>Bhadar Tributary Catchment (Jasdan, Saurashtra)</b><br><span style="color:#64748b">Sardar Patel Water Conservation Project</span>');
+    watershedGroup.addLayer(saurashtraBasin);
+
+    // 5. Uttarakhand Kosi Springshed Catchment (Almora)
+    const kosiBasin = L.polygon([
+      [29.56, 79.60],
+      [29.64, 79.62],
+      [29.63, 79.70],
+      [29.55, 79.67],
+    ], {
+      color: '#14b8a6',
+      weight: 2,
+      dashArray: '5, 5',
+      fillColor: '#14b8a6',
+      fillOpacity: 0.12,
+    }).bindPopup('<b>Kosi River Springshed Catchment (Almora, Kumaon)</b><br><span style="color:#64748b">Himalayan Spring Rejuvenation Zone</span>');
+    watershedGroup.addLayer(kosiBasin);
+
+    // 6. Andhra Pradesh Rayalaseema Catchment (Anantapur)
+    const rayalaseemaBasin = L.polygon([
+      [14.36, 77.67],
+      [14.47, 77.70],
+      [14.45, 77.78],
+      [14.35, 77.75],
+    ], {
+      color: '#f97316',
+      weight: 2,
+      dashArray: '5, 5',
+      fillColor: '#f97316',
+      fillOpacity: 0.12,
+    }).bindPopup('<b>Rayalaseema Drought-Prone Basin (Anantapur)</b><br><span style="color:#64748b">PMKSY-WDC Integrated Watershed</span>');
+    watershedGroup.addLayer(rayalaseemaBasin);
+
+    // 7. Madhya Pradesh Satna Micro-Basin
+    const satnaBasin = L.polygon([
+      [24.595, 80.805],
+      [24.591, 80.858],
+      [24.568, 80.875],
+      [24.536, 80.854],
+      [24.545, 80.812],
+      [24.576, 80.796],
+    ], {
+      color: '#8b5cf6',
+      weight: 2,
+      dashArray: '5, 5',
+      fillColor: '#8b5cf6',
+      fillOpacity: 0.12,
+    }).bindPopup('<b>Satna Ken-Tributary Micro-Basin</b><br><span style="color:#64748b">Area: ~1,840 Ha • Hydro-DEM Delineated</span>');
+    watershedGroup.addLayer(satnaBasin);
+
+    watershedGroup.addTo(map);
+
+    // Sentinel-2 False-Color NDVI Overlay Zones
+    const ndviGroup = L.featureGroup();
+    ndviLayerRef.current = ndviGroup;
+
+    const ndviCentres = [
+      { coords: [18.9186, 74.4172], name: 'Ralegan Siddhi (MH)', ndvi: '+0.48' },
+      { coords: [19.0345, 74.5986], name: 'Hiware Bazar (MH)', ndvi: '+0.52' },
+      { coords: [17.3667, 78.1167], name: 'Kothapally ICRISAT (TS)', ndvi: '+0.56' },
+      { coords: [22.0325, 71.2053], name: 'Jasdan Saurashtra (GJ)', ndvi: '+0.44' },
+      { coords: [27.1856, 76.2418], name: 'Arvari Basin (RJ)', ndvi: '+0.39' },
+      { coords: [26.6021, 75.2981], name: 'Laporiya Chauka (RJ)', ndvi: '+0.41' },
+      { coords: [29.5982, 79.6453], name: 'Almora Kosi (UK)', ndvi: '+0.62' },
+      { coords: [30.7932, 76.9048], name: 'Sukhomajri (HR)', ndvi: '+0.54' },
+      { coords: [14.4136, 77.7214], name: 'Anantapur (AP)', ndvi: '+0.36' },
+      { coords: [24.5748, 80.8321], name: 'Satna Nagod (MP)', ndvi: '+0.43' },
+    ];
+
+    ndviCentres.forEach((zone) => {
+      const circle = L.circle(zone.coords, {
+        radius: 1400,
+        color: '#22c55e',
+        weight: 1.5,
+        fillColor: '#22c55e',
+        fillOpacity: 0.20,
+      }).bindPopup(
+        `<div><strong>Sentinel-2 NDVI Catchment Zone: ${zone.name}</strong><br/>Post-Monsoon Mean NDVI: <strong>${zone.ndvi}</strong></div>`
+      );
+      ndviGroup.addLayer(circle);
+    });
+    ndviGroup.addTo(map);
+
+    // Asset Markers Group
+    const assetsGroup = L.layerGroup();
+    assetsLayerRef.current = assetsGroup;
+
+    const allAssets = evidenceItems || [];
+    allAssets.forEach((asset) => {
+      const coords = parseGpsCoordinates(asset.gps);
+      if (!coords) return;
+
+      let iconSymbol = '🌊';
+      let pinClass = 'pin-check-dam';
+
+      if (asset.assetType?.toLowerCase().includes('pond')) {
+        iconSymbol = '💧';
+        pinClass = 'pin-farm-pond';
+      } else if (asset.assetType?.toLowerCase().includes('trench')) {
+        iconSymbol = '🌱';
+        pinClass = 'pin-contour-trench';
+      } else if (asset.assetType?.toLowerCase().includes('tank')) {
+        iconSymbol = '🏛️';
+        pinClass = 'pin-percolation-tank';
+      }
+
+      const assetIcon = L.divIcon({
+        className: `custom-asset-pin ${pinClass}`,
+        html: `<span>${iconSymbol}</span>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      });
+
+      const marker = L.marker(coords, { icon: assetIcon });
+      marker.on('click', () => {
+        setSelectedPoint(asset);
+        if (onUpdateGps && asset.gps) {
+          onUpdateGps(asset.gps);
+        }
+      });
+
+      marker.bindPopup(`
+        <div style="min-width: 220px; max-width: 280px; font-family: sans-serif;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-size: 0.7rem; font-weight: 700; color: #64748b;">${asset.id}</span>
+            <span style="font-size: 0.72rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: ${asset.status === 'Verified' ? '#dcfce7' : '#fee2e2'}; color: ${asset.status === 'Verified' ? '#15803d' : '#b91c1c'};">
+              ${asset.status}
+            </span>
+          </div>
+          <h4 style="margin: 0 0 3px 0; color: #0f172a; font-size: 0.92rem; line-height: 1.25;">${asset.assetId || asset.name || 'Asset'}</h4>
+          <p style="margin: 0 0 5px 0; font-size: 0.78rem; color: #475569;"><strong>${asset.village}</strong> • ${asset.assetType}</p>
+          <p style="margin: 0 0 6px 0; font-size: 0.74rem; color: #334155; line-height: 1.35; background: #f8fafc; padding: 5px 7px; border-radius: 4px; border: 1px solid #e2e8f0;">
+            ${asset.observation}
+          </p>
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #64748b;">
+            <span>CV Score: <strong>${asset.qualityScore}%</strong></span>
+            <span>Risk: <strong style="color: ${asset.risk === 'High' ? '#dc2626' : asset.risk === 'Medium' ? '#d97706' : '#15803d'}">${asset.risk}</strong></span>
+          </div>
+          <p style="margin: 4px 0 0 0; font-size: 0.68rem; color: #94a3b8;">GPS: ${asset.gps}</p>
+        </div>
+      `);
+
+      assetsGroup.addLayer(marker);
+    });
+    assetsGroup.addTo(map);
+
+    // Active Target Pin (Synchronized with Evidence Form GPS Geotag Location)
+    const activeGpsIcon = L.divIcon({
+      className: 'active-gps-pin',
+      html: '<div class="active-gps-radar"></div><div class="active-gps-dot"></div>',
+      iconSize: [44, 44],
+      iconAnchor: [22, 22],
+    });
+
+    const activeMarker = L.marker([initLat, initLng], {
+      icon: activeGpsIcon,
+      zIndexOffset: 1000,
+    }).bindPopup(`
+      <div style="min-width: 190px; font-family: sans-serif;">
+        <h4 style="margin: 0 0 2px 0; color: #0284c7;">🎯 Active Evidence Geotag Location</h4>
+        <p style="margin: 0; font-size: 0.78rem; color: #334155;">Latitude: <strong>${initLat.toFixed(4)}</strong>, Longitude: <strong>${initLng.toFixed(4)}</strong></p>
+        <p style="margin: 4px 0 0 0; font-size: 0.72rem; color: #64748b;">Linked live to Evidence Form GPS input</p>
+      </div>
+    `);
+    activeGpsMarkerRef.current = activeMarker;
+    activeMarker.addTo(map);
+
+    const accuracyCircle = L.circle([initLat, initLng], {
+      radius: 120,
+      color: '#0284c7',
+      fillColor: '#0284c7',
+      fillOpacity: 0.15,
+      weight: 1.5,
+    });
+    accuracyCircleRef.current = accuracyCircle;
+    accuracyCircle.addTo(map);
+
+    // Click anywhere on map to update Evidence Form GPS Geotag
+    map.on('click', (e) => {
+      const clickedLat = e.latlng.lat.toFixed(4);
+      const clickedLng = e.latlng.lng.toFixed(4);
+      const newGps = `${clickedLat}, ${clickedLng}`;
+      if (onUpdateGps) {
+        onUpdateGps(newGps);
+      }
+    });
+
+    // Invalidate size once rendered
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, [evidenceItems]);
+
+  // Fly to new location when formData.gps changes
+  useEffect(() => {
+    if (!mapInstanceRef.current || !formData?.gps) return;
+    const coords = parseGpsCoordinates(formData.gps);
+    if (!coords) return;
+    const [lat, lng] = coords;
+
+    mapInstanceRef.current.flyTo([lat, lng], 15, {
+      animate: true,
+      duration: 1.2,
+    });
+
+    if (activeGpsMarkerRef.current) {
+      activeGpsMarkerRef.current.setLatLng([lat, lng]);
+      activeGpsMarkerRef.current.setPopupContent(`
+        <div style="min-width: 190px; font-family: sans-serif;">
+          <h4 style="margin: 0 0 2px 0; color: #0284c7;">🎯 Active Evidence Geotag Location</h4>
+          <p style="margin: 0; font-size: 0.78rem; color: #334155;">Latitude: <strong>${lat.toFixed(4)}</strong>, Longitude: <strong>${lng.toFixed(4)}</strong></p>
+          <p style="margin: 4px 0 0 0; font-size: 0.72rem; color: #64748b;">Live synchronized with Evidence Form</p>
+        </div>
+      `);
+    }
+
+    if (accuracyCircleRef.current) {
+      accuracyCircleRef.current.setLatLng([lat, lng]);
+    }
+  }, [formData?.gps]);
+
+  // Layer toggles
+  const toggleLayer = (layerKey) => {
+    setActiveLayers((prev) => {
+      const updated = { ...prev, [layerKey]: !prev[layerKey] };
+      const map = mapInstanceRef.current;
+      if (!map) return updated;
+
+      if (layerKey === 'watershed' && watershedLayerRef.current) {
+        if (updated.watershed) {
+          map.addLayer(watershedLayerRef.current);
+        } else {
+          map.removeLayer(watershedLayerRef.current);
+        }
+      }
+      if (layerKey === 'ndvi' && ndviLayerRef.current) {
+        if (updated.ndvi) {
+          map.addLayer(ndviLayerRef.current);
+        } else {
+          map.removeLayer(ndviLayerRef.current);
+        }
+      }
+      if (layerKey === 'assets' && assetsLayerRef.current) {
+        if (updated.assets) {
+          map.addLayer(assetsLayerRef.current);
+        } else {
+          map.removeLayer(assetsLayerRef.current);
+        }
+      }
+      if (layerKey === 'satellite' && googleSatLayerRef.current) {
+        if (updated.satellite) {
+          map.addLayer(googleSatLayerRef.current);
+        } else {
+          map.removeLayer(googleSatLayerRef.current);
+        }
+      }
+
+      return updated;
+    });
   };
 
-  const points = [
-    {
-      id: 'CD',
-      name: 'North Nala Check Dam 4',
-      village: 'Rampur',
-      type: 'Check Dam',
-      gps: '24.5748, 80.8321',
-      status: 'Verified (94% CV score)',
-      className: 'point-a',
-    },
-    {
-      id: 'FP',
-      name: 'Community Farm Pond 2',
-      village: 'Kalyanpur',
-      type: 'Farm Pond',
-      gps: '24.5612, 80.8417',
-      status: 'Needs Review (Erosion flag)',
-      className: 'point-b',
-    },
-    {
-      id: 'CT',
-      name: 'East Ridge Contour Trenches',
-      village: 'Bhagwanpur',
-      type: 'Contour Trench',
-      gps: '24.5511, 80.8543',
-      status: 'Verified (91% CV score)',
-      className: 'point-c',
-    },
-  ];
+  const jumpToRegion = (lat, lng, zoom) => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([lat, lng], zoom, { animate: true, duration: 1.2 });
+    }
+  };
+
+  const [activeLat, activeLng] = parseGpsCoordinates(formData?.gps);
 
   return (
     <section className="split-layout map-layout">
@@ -687,61 +1294,146 @@ function MapPage({ evidenceItems }) {
         <div className="panel-heading" style={{ marginBottom: '0.5rem' }}>
           <div>
             <span className="eyebrow">Spatial GIS Viewer</span>
-            <h2>Watershed Micro-Basin Map</h2>
+            <h2>Pan-India Watershed & Satellite GIS Map</h2>
           </div>
         </div>
 
-        <div className="map-toolbar">
+        {/* Map Toolbar & Regional View Jump */}
+        <div className="map-toolbar" style={{ flexWrap: 'wrap', gap: '0.4rem' }}>
+          <button
+            type="button"
+            className={`layer-toggle ${activeLayers.satellite ? 'active' : ''}`}
+            onClick={() => toggleLayer('satellite')}
+          >
+            🛰️ Google Satellite {activeLayers.satellite ? '✓' : ''}
+          </button>
           <button
             type="button"
             className={`layer-toggle ${activeLayers.watershed ? 'active' : ''}`}
             onClick={() => toggleLayer('watershed')}
           >
-            🌊 Watershed Basin {activeLayers.watershed ? '✓' : ''}
+            🌊 Micro-Basins {activeLayers.watershed ? '✓' : ''}
           </button>
           <button
             type="button"
             className={`layer-toggle ${activeLayers.ndvi ? 'active' : ''}`}
             onClick={() => toggleLayer('ndvi')}
           >
-            🌱 NDVI Vegetation {activeLayers.ndvi ? '✓' : ''}
+            🌱 Sentinel-2 NDVI {activeLayers.ndvi ? '✓' : ''}
           </button>
           <button
             type="button"
             className={`layer-toggle ${activeLayers.assets ? 'active' : ''}`}
             onClick={() => toggleLayer('assets')}
           >
-            📍 Asset Geotags {activeLayers.assets ? '✓' : ''}
+            📍 All Geotags ({evidenceItems?.length || 12}) {activeLayers.assets ? '✓' : ''}
           </button>
+
+          {/* Regional Quick Jump Controls */}
+          <div style={{ display: 'flex', gap: '0.3rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="layer-toggle"
+              onClick={() => jumpToRegion(22.0, 79.0, 5)}
+              title="Fit all-India extent"
+              style={{ background: '#0f172a', color: '#38bdf8', borderColor: '#38bdf8' }}
+            >
+              🇮🇳 All-India
+            </button>
+            <button
+              type="button"
+              className="layer-toggle"
+              onClick={() => jumpToRegion(19.0, 74.5, 9)}
+              title="Maharashtra Watersheds (Ralegan Siddhi & Hiware Bazar)"
+            >
+              Maharashtra
+            </button>
+            <button
+              type="button"
+              className="layer-toggle"
+              onClick={() => jumpToRegion(26.9, 75.8, 8)}
+              title="Rajasthan Watersheds (Arvari Johad & Laporiya)"
+            >
+              Rajasthan
+            </button>
+            <button
+              type="button"
+              className="layer-toggle"
+              onClick={() => jumpToRegion(17.3667, 78.1167, 14)}
+              title="Telangana ICRISAT Benchmark"
+            >
+              Telangana
+            </button>
+            <button
+              type="button"
+              className="layer-toggle"
+              onClick={() => jumpToRegion(22.0325, 71.2053, 14)}
+              title="Gujarat Saurashtra Check Dam"
+            >
+              Gujarat
+            </button>
+            <button
+              type="button"
+              className="layer-toggle"
+              onClick={() => jumpToRegion(30.2, 78.3, 8)}
+              title="North / Himalayan Watersheds"
+            >
+              North/Himalaya
+            </button>
+            <button
+              type="button"
+              className="layer-toggle"
+              onClick={() => jumpToRegion(14.3, 77.9, 9)}
+              title="Andhra Rayalaseema Watershed"
+            >
+              Rayalaseema
+            </button>
+          </div>
         </div>
 
+        {/* Interactive Leaflet Map Canvas */}
         <div className="map-canvas" aria-label="Interactive watershed GIS map">
-          {activeLayers.watershed && <div className="watershed-layer"></div>}
-          <div className="water-channel"></div>
+          <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
-          {activeLayers.assets &&
-            points.map((pt) => (
-              <button
-                key={pt.id}
-                type="button"
-                className={`map-point ${pt.className}`}
-                onClick={() => setSelectedPoint(pt)}
-                title={`${pt.name} (${pt.village})`}
-              >
-                <span>{pt.id}</span>
-              </button>
-            ))}
-
-          {activeLayers.ndvi && <div className="risk-zone">Low Vegetation Catchment Zone</div>}
+          {/* Floating Telemetry HUD (Compact) */}
+          <div className="gis-hud-overlay">
+            <div className="gis-hud-title">
+              <span>🛰️</span>
+              <span>Live Telemetry</span>
+            </div>
+            <div className="gis-hud-metric">
+              <span>Geotag:</span>
+              <strong>{activeLat.toFixed(4)}, {activeLng.toFixed(4)}</strong>
+            </div>
+            <div className="gis-hud-metric">
+              <span>NDVI:</span>
+              <strong style={{ color: '#4ade80' }}>
+                {eeTelemetry?.ndvi ? `+${eeTelemetry.ndvi}` : '+0.435'}
+              </strong>
+            </div>
+            <div className="gis-hud-metric">
+              <span>MNDWI:</span>
+              <strong>{eeTelemetry?.mndwi !== undefined ? `${eeTelemetry.mndwi > 0 ? '+' : ''}${eeTelemetry.mndwi}` : '-0.382'}</strong>
+            </div>
+            <div className="gis-hud-metric">
+              <span>Elevation:</span>
+              <strong>{eeTelemetry?.elevation_meters || 450}m</strong>
+            </div>
+            <div style={{ marginTop: '0.2rem', paddingTop: '0.2rem', borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '0.62rem', color: '#93c5fd' }}>
+              💡 Click map to set GPS
+            </div>
+          </div>
 
           {selectedPoint && (
             <div className="marker-detail-card">
               <div className="marker-detail-info">
-                <h4>{selectedPoint.name}</h4>
+                <h4>{selectedPoint.assetId || selectedPoint.name}</h4>
                 <p>
-                  <strong>{selectedPoint.village}</strong> • {selectedPoint.type} • {selectedPoint.gps}
+                  <strong>{selectedPoint.village}</strong> • {selectedPoint.assetType} • {selectedPoint.gps}
                 </p>
-                <p style={{ color: '#15803d', fontWeight: 600 }}>{selectedPoint.status}</p>
+                <p style={{ color: selectedPoint.status === 'Verified' ? '#15803d' : '#dc2626', fontWeight: 600 }}>
+                  {selectedPoint.status} ({selectedPoint.risk} Risk)
+                </p>
               </div>
               <button type="button" className="btn-close-marker" onClick={() => setSelectedPoint(null)}>
                 ✕
@@ -749,14 +1441,76 @@ function MapPage({ evidenceItems }) {
             </div>
           )}
         </div>
+
+        {/* Preset Locations Bar */}
+        <div className="gis-presets-bar">
+          <span style={{ fontWeight: 600, color: '#475569' }}>Real-World Field Assets:</span>
+          {[
+            { name: '📍 Ralegan Siddhi (Simple)', coords: '18.9186, 74.4172' },
+            { name: '📍 Saurashtra RCC (Simple)', coords: '22.0325, 71.2053' },
+            { name: '📍 Nagod Weir (Simple)', coords: '24.5748, 80.8321' },
+            { name: '📍 Anantapur Pond (Simple)', coords: '14.4136, 77.7214' },
+            { name: '⚡ Kothapally ICRISAT (Complex)', coords: '17.3667, 78.1167' },
+            { name: '⚡ Hiware Bazar CCT (Complex)', coords: '19.0345, 74.5986' },
+            { name: '⚡ Shirpur Deep Dam (Complex)', coords: '21.3508, 74.8812' },
+            { name: '⚡ Laporiya Chauka (Complex)', coords: '26.6021, 75.2981' },
+            { name: '⚠️ Arvari Johad Breach (Needs Review)', coords: '27.1856, 76.2418' },
+            { name: '⚠️ Sukhomajri Silt Dam (Needs Review)', coords: '30.7932, 76.9048' },
+            { name: '⚠️ Almora Kosi Failure (Needs Review)', coords: '29.5982, 79.6453' },
+            { name: '⚠️ Kadiri Piping Seepage (Needs Review)', coords: '14.1120, 78.1560' },
+          ].map((loc) => (
+            <button
+              key={loc.name}
+              type="button"
+              className={`gis-preset-chip ${(formData?.gps || '').startsWith(loc.coords.slice(0, 7)) ? 'active' : ''}`}
+              onClick={() => onUpdateGps && onUpdateGps(loc.coords)}
+            >
+              {loc.name}
+            </button>
+          ))}
+        </div>
+
+        {/* Live Earth Engine Telemetry Banner */}
+        <div className="ee-telemetry-banner">
+          <div className="ee-telemetry-item">
+            <span>Spectral Vegetation Index</span>
+            <strong>NDVI {eeTelemetry?.ndvi ? `+${eeTelemetry.ndvi}` : '+0.597'}</strong>
+          </div>
+          <div className="ee-telemetry-item">
+            <span>Catchment Assessment</span>
+            <strong style={{ color: '#15803d' }}>
+              {eeTelemetry?.catchment_health || 'High Vegetation Buffer'}
+            </strong>
+          </div>
+          <div className="ee-telemetry-item">
+            <span>Water Spread (MNDWI)</span>
+            <strong>{eeTelemetry?.mndwi ? `+${eeTelemetry.mndwi}` : '+0.14'} (Retained)</strong>
+          </div>
+          <div className="ee-telemetry-item">
+            <span>Digital Elevation (SRTM)</span>
+            <strong>{eeTelemetry?.elevation_meters || 302}m ASL</strong>
+          </div>
+        </div>
       </div>
 
       <div className="panel">
-        <span className="eyebrow">Geo-Coded Evidence Points</span>
-        <h1>Spatial Ground Records</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span className="eyebrow">Geo-Coded Evidence Points</span>
+            <h1 style={{ fontSize: '1.4rem' }}>Spatial Ground Records</h1>
+          </div>
+          <button
+            type="button"
+            className="secondary-action"
+            style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+            onClick={() => onNavigate && onNavigate('evidence')}
+          >
+            + New Evidence
+          </button>
+        </div>
         <p className="muted-copy">
-          Click on any interactive marker on the map to inspect the field worker submission, GPS coordinates,
-          and CV health assessment.
+          Click on any interactive marker or watershed region to inspect ground photographs, GPS coordinates,
+          and automated remote sensing health metrics.
         </p>
 
         <EvidenceTable items={evidenceItems.slice(0, 4)} compact />
