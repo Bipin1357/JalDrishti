@@ -3,14 +3,18 @@ import react from '@vitejs/plugin-react'
 
 const PRODUCTION_API_BASE = 'https://jaldrishti-backend-6nko.onrender.com'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
 
-  // Keep local development on the Vite -> FastAPI proxy, but make sure
-  // production builds always target the currently deployed Render backend.
-  define: {
-    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(PRODUCTION_API_BASE),
-  },
+  // Development keeps using the Vite -> FastAPI proxy. Production is pinned
+  // to the live Render backend even if an old Vercel env var still exists.
+  ...(mode === 'production'
+    ? {
+        define: {
+          'import.meta.env.VITE_API_BASE_URL': JSON.stringify(PRODUCTION_API_BASE),
+        },
+      }
+    : {}),
 
   server: {
     port: 5501,
@@ -22,4 +26,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))
