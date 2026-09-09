@@ -650,32 +650,7 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
           verification and government watershed records.
         </p>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={() => fillDemoData('complex')}
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
-          >
-            ⚡ Complex: ICRISAT Benchmark Dam (TS)
-          </button>
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={() => fillDemoData('simple')}
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
-          >
-            ⚡ Simple: Ralegan Siddhi Nalla Bund (MH)
-          </button>
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={() => fillDemoData('review')}
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', borderColor: '#fca5a5', color: '#b91c1c' }}
-          >
-            ⚠️ Needs Review: Arvari Johad Breach (RJ)
-          </button>
-        </div>
+        
 
         <form className="evidence-form" onSubmit={onSubmit}>
           <div className="form-group">
@@ -758,41 +733,6 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
               >
                 🗺️ View in Spatial GIS
               </button>
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                gap: '0.35rem',
-                flexWrap: 'wrap',
-                marginTop: '0.45rem',
-                alignItems: 'center',
-              }}
-            >
-              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Pan-India Presets:</span>
-              {[
-                { name: '📍 Ralegan Siddhi, MH (Simple)', coords: '18.9186, 74.4172' },
-                { name: '📍 Saurashtra RCC, GJ (Simple)', coords: '22.0325, 71.2053' },
-                { name: '📍 Nagod Ken Weir, MP (Simple)', coords: '24.5748, 80.8321' },
-                { name: '📍 Anantapur Pond, AP (Simple)', coords: '14.4136, 77.7214' },
-                { name: '⚡ Kothapally ICRISAT, TS (Complex)', coords: '17.3667, 78.1167' },
-                { name: '⚡ Hiware Bazar CCT, MH (Complex)', coords: '19.0345, 74.5986' },
-                { name: '⚡ Shirpur Deep Dam, MH (Complex)', coords: '21.3508, 74.8812' },
-                { name: '⚡ Laporiya Chauka, RJ (Complex)', coords: '26.6021, 75.2981' },
-                { name: '⚠️ Arvari Johad Breach, RJ (Needs Review)', coords: '27.1856, 76.2418' },
-                { name: '⚠️ Sukhomajri Silt Dam, HR (Needs Review)', coords: '30.7932, 76.9048' },
-                { name: '⚠️ Almora Kosi Failure, UK (Needs Review)', coords: '29.5982, 79.6453' },
-                { name: '⚠️ Kadiri Piping Seepage, AP (Needs Review)', coords: '14.1120, 78.1560' },
-              ].map((preset) => (
-                <button
-                  key={preset.name}
-                  type="button"
-                  className={`gis-preset-chip ${(formData.gps || '').startsWith(preset.coords.slice(0, 7)) ? 'active' : ''}`}
-                  onClick={() => updateField('gps', preset.coords)}
-                >
-                  {preset.name}
-                </button>
-              ))}
             </div>
           </div>
 
