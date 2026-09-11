@@ -799,7 +799,7 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
           verification and government watershed records.
         </p>
 
-        
+
 
         <form className="evidence-form" onSubmit={onSubmit}>
           <div className="form-group">
@@ -920,8 +920,8 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
                       {formData.isBlurry
                         ? `❌ Blurry Photo (Laplacian: ${formData.blurScore} < ${formData.blurThreshold || 100})`
                         : formData.isSmudged
-                        ? `❌ Lens Smudge Detected (${formData.lowVarianceZones} foggy zones)`
-                        : `✓ Sharp & Clear (Laplacian: ${formData.blurScore} ≥ 100)`}
+                          ? `❌ Lens Smudge Detected (${formData.lowVarianceZones} foggy zones)`
+                          : `✓ Sharp & Clear (Laplacian: ${formData.blurScore} ≥ 100)`}
                     </span>
                     <span style={{ fontSize: '0.72rem', opacity: 0.9 }}>
                       {formData.isRejected ? 'Clean lens / Recapture' : 'QA Verified'}
@@ -941,10 +941,10 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
             {isSubmitting
               ? 'Verifying & Submitting...'
               : formData.isBlurry
-              ? '⛔ Rejected: Image Too Blurry'
-              : formData.isSmudged
-              ? '⛔ Rejected: Camera Lens Smudge Detected'
-              : 'Submit & Run CV Verification'}
+                ? '⛔ Rejected: Image Too Blurry'
+                : formData.isSmudged
+                  ? '⛔ Rejected: Camera Lens Smudge Detected'
+                  : 'Submit & Run CV Verification'}
           </button>
         </form>
       </div>
@@ -982,7 +982,7 @@ function EvidencePage({ formData, setFormData, onSubmit, isSubmitting, onNavigat
 
         <div className="cv-pipeline-badge">
           <span>🧠</span>
-          <span>FastAPI + YOLOv8 + Earth Engine NDVI Ready</span>
+          <span>FastAPI + YOLOv11 + Earth Engine NDVI Ready</span>
         </div>
       </aside>
     </section>
@@ -1621,7 +1621,7 @@ function AnalysisPage({
   indexData = cachedIndices,
   loading = false,
   error = '',
-  onRetry = () => {},
+  onRetry = () => { },
 }) {
   console.log('[AnalysisPage Render] Props:', {
     hasIndexData: !!indexData,
@@ -1655,16 +1655,16 @@ function AnalysisPage({
 
   const ndviPercentChange = indexData?.ndvi?.before?.mean != null && indexData?.ndvi?.after?.mean != null
     ? calculatePercentChange(
-        indexData.ndvi.before.mean,
-        indexData.ndvi.after.mean
-      )
+      indexData.ndvi.before.mean,
+      indexData.ndvi.after.mean
+    )
     : null;
 
   const ndwiPercentChange = indexData?.ndwi?.before?.mean != null && indexData?.ndwi?.after?.mean != null
     ? calculatePercentChange(
-        indexData.ndwi.before.mean,
-        indexData.ndwi.after.mean
-      )
+      indexData.ndwi.before.mean,
+      indexData.ndwi.after.mean
+    )
     : null;
 
   return (
